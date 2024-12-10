@@ -2,12 +2,22 @@ package com.github.libretube.ui.models
 
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
+import androidx.media3.common.util.UnstableApi
+import com.github.libretube.api.obj.Segment
+import com.github.libretube.api.obj.Subtitle
+import com.github.libretube.helpers.PlayerHelper
 
+@UnstableApi
 class PlayerViewModel : ViewModel() {
-    val isMiniPlayerVisible = MutableLiveData<Boolean>().apply {
-        value = false
-    }
-    val isFullscreen = MutableLiveData<Boolean>().apply {
-        value = false
-    }
+
+    var segments = MutableLiveData<List<Segment>>()
+    var currentSubtitle = Subtitle(code = PlayerHelper.defaultSubtitleCode)
+    var sponsorBlockConfig = PlayerHelper.getSponsorBlockCategories()
+
+    /**
+     * Whether an orientation change is in progress, so that the current player should be continued to use
+     *
+     * Set to true if the activity will be recreated due to an orientation change
+     */
+    var isOrientationChangeInProgress = false
 }

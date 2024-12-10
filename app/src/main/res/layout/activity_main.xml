@@ -5,7 +5,9 @@
     android:id="@+id/mainMotionLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="?android:colorBackground"
     app:layoutDescription="@xml/activity_main_scene"
+    app:motionProgress="1"
     tools:context=".ui.activities.MainActivity">
 
     <com.google.android.material.appbar.AppBarLayout
@@ -42,8 +44,7 @@
         app:layout_constraintBottom_toTopOf="@+id/bottomNav"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/appBarLayout"
-        app:navGraph="@navigation/nav" />
+        app:layout_constraintTop_toBottomOf="@id/appBarLayout" />
 
     <FrameLayout
         android:id="@+id/container"
