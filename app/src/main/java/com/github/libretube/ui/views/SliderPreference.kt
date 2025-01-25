@@ -7,8 +7,9 @@ import androidx.preference.Preference
 import com.github.libretube.R
 import com.github.libretube.databinding.DialogSliderBinding
 import com.github.libretube.extensions.round
-import com.github.libretube.util.PreferenceHelper
+import com.github.libretube.helpers.PreferenceHelper
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import kotlin.math.roundToInt
 
 /**
  * Preference that includes a slider
@@ -16,51 +17,38 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 class SliderPreference(
     context: Context,
     attributeSet: AttributeSet
-) : Preference(
-    context,
-    attributeSet
-) {
+) : Preference(context, attributeSet) {
     private lateinit var sliderBinding: DialogSliderBinding
-    private var defValue = 0f
+    private val defValue: Float
+    private val valueFrom: Float
+    private val valueTo: Float
+    private val stepSize: Float
+
+    init {
+        val ta = context.obtainStyledAttributes(attributeSet, R.styleable.SliderPreference)
+        defValue = ta.getFloat(R.styleable.SliderPreference_defValue, 0f)
+        valueFrom = ta.getFloat(R.styleable.SliderPreference_valueFrom, 1f)
+        valueTo = ta.getFloat(R.styleable.SliderPreference_valueTo, 10f)
+        stepSize = ta.getFloat(R.styleable.SliderPreference_stepSize, 1f)
+        ta.recycle()
+    }
 
     private var prefValue: Float
-        get() = PreferenceHelper.getString(
-            key,
-            defValue.toString()
-        ).toFloat()
-        set(value) {
-            PreferenceHelper.putString(
-                key,
-                value.toString()
-            )
-        }
+        get() = PreferenceHelper.getString(key, defValue.toString()).toFloat()
+        set(value) = PreferenceHelper.putString(key, value.toString())
 
-    private val typedArray = context.obtainStyledAttributes(attributeSet, R.styleable.SliderPreference)
-
-    override fun onAttached() {
-        super.onAttached()
-
-        defValue = typedArray.getFloat(R.styleable.SliderPreference_defValue, 1.0f)
-    }
-
-    override fun getSummary(): CharSequence {
-        return prefValue.toString()
-    }
+    override fun getSummary(): CharSequence = getDisplayedCurrentValue(prefValue)
 
     override fun onClick() {
-        val valueFrom = typedArray.getFloat(R.styleable.SliderPreference_valueFrom, 1.0f)
-        val valueTo = typedArray.getFloat(R.styleable.SliderPreference_valueTo, 10.0f)
-        val stepSize = typedArray.getFloat(R.styleable.SliderPreference_stepSize, 1.0f)
-
         sliderBinding = DialogSliderBinding.inflate(
             LayoutInflater.from(context)
         )
 
         sliderBinding.slider.apply {
-            this.value = prefValue
-            this.valueFrom = valueFrom
-            this.valueTo = valueTo
-            this.stepSize = stepSize
+            value = prefValue
+            valueFrom = this@SliderPreference.valueFrom
+            valueTo = this@SliderPreference.valueTo
+            stepSize = this@SliderPreference.stepSize
         }
 
         sliderBinding.minus.setOnClickListener {
@@ -97,6 +85,15 @@ class SliderPreference(
     }
 
     private fun updateCurrentValueText() {
-        sliderBinding.currentValue.text = sliderBinding.slider.value.round(2).toString()
+        sliderBinding.currentValue.text = getDisplayedCurrentValue(sliderBinding.slider.value)
+    }
+
+    private fun getDisplayedCurrentValue(currentValue: Float): String {
+        // if the preference only accepts integer steps, we don't need to show the decimals,
+        // as these decimals are just zero and hence not useful for the user
+        if (valueTo % 1 == 0f && valueFrom % 1 == 0f && stepSize % 1 == 0f) {
+            return currentValue.roundToInt().toString()
+        }
+        return currentValue.round(2).toString()
     }
 }

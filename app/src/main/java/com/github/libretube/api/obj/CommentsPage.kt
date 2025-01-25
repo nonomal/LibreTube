@@ -1,10 +1,11 @@
 package com.github.libretube.api.obj
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import kotlinx.serialization.Serializable
 
-@JsonIgnoreProperties(ignoreUnknown = true)
+@Serializable
 data class CommentsPage(
-    val comments: MutableList<Comment> = arrayListOf(),
-    val disabled: Boolean? = null,
-    val nextpage: String? = null
+    var comments: List<Comment> = emptyList(),
+    val disabled: Boolean = false,
+    val nextpage: String? = null,
+    val commentCount: Long = 0
 )
