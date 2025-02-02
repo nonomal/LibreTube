@@ -11,7 +11,7 @@
         android:id="@+id/player_scrollView"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:background="?android:attr/colorBackground"
+        android:background="?android:colorBackground"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintHorizontal_bias="0.5"
@@ -22,265 +22,112 @@
             android:id="@+id/linLayout"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:animateLayoutChanges="true"
             android:orientation="vertical">
 
-            <LinearLayout
-                android:id="@+id/player_title_layout"
+            <com.github.libretube.ui.views.DescriptionLayout
+                android:id="@+id/descriptionLayout"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginVertical="8dp"
-                android:orientation="horizontal">
+                android:animateLayoutChanges="true" />
 
-                <TextView
-                    android:id="@+id/player_title"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="center"
-                    android:layout_marginStart="10dp"
-                    android:layout_marginEnd="5dp"
-                    android:layout_weight="1"
-                    android:maxLines="2"
-                    android:textSize="18sp"
-                    tools:text="Video Title" />
-
-                <ImageView
-                    android:id="@+id/player_description_arrow"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="center"
-                    android:layout_marginHorizontal="10dp"
-                    android:src="@drawable/ic_arrow_down" />
-
-            </LinearLayout>
-
-            <LinearLayout
+            <HorizontalScrollView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginHorizontal="10dp"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:id="@+id/player_views_info"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    tools:text="10M views    2 days ago " />
-
-                <LinearLayout
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="3dp"
-                    android:layout_marginTop="2dp">
-
-                    <ImageView
-                        android:layout_width="12dp"
-                        android:layout_height="12dp"
-                        android:layout_gravity="center"
-                        android:src="@drawable/ic_like" />
-
-                    <TextView
-                        android:id="@+id/textLike"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginHorizontal="5dp"
-                        tools:text="4.2K" />
-
-                    <ImageView
-                        android:layout_width="12dp"
-                        android:layout_height="12dp"
-                        android:layout_gravity="center"
-                        android:layout_marginStart="5dp"
-                        android:rotation="180"
-                        android:src="@drawable/ic_like" />
-
-                    <TextView
-                        android:id="@+id/textDislike"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginHorizontal="5dp"
-                        tools:text="1.3K" />
-
-                </LinearLayout>
-
-            </LinearLayout>
-
-            <LinearLayout
-                android:id="@+id/desc_linLayout"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:visibility="gone">
-
-                <androidx.recyclerview.widget.RecyclerView
-                    android:id="@+id/chapters_recView"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginHorizontal="3dp"
-                    android:layout_marginTop="20dp"
-                    android:nestedScrollingEnabled="false"
-                    android:visibility="gone" />
-
-                <TextView
-                    android:id="@+id/player_description"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:autoLink="web"
-                    android:padding="8dp"
-                    android:textIsSelectable="true"
-                    android:textSize="14sp" />
-
-            </LinearLayout>
-
-            <com.google.android.material.card.MaterialCardView
-                style="@style/Widget.Material3.CardView.Elevated"
-                android:layout_width="match_parent"
-                android:layout_height="80dp"
-                android:layout_margin="17dp"
-                app:cardCornerRadius="27dp">
+                android:paddingBottom="10dp"
+                android:scrollbars="none">
 
                 <LinearLayout
                     android:id="@+id/optionsLL"
-                    android:layout_width="match_parent"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_gravity="center"
-                    android:layout_marginLeft="10dp"
-                    android:layout_marginRight="10dp"
-                    android:gravity="center"
                     android:orientation="horizontal"
-                    android:weightSum="5">
+                    android:paddingHorizontal="2dp">
 
-                    <LinearLayout
+                    <com.google.android.material.button.MaterialButton
                         android:id="@+id/relPlayer_share"
-                        style="@style/PlayerActionsLayout"
-                        android:layout_weight="1">
+                        style="@style/PlayerActionsButton"
+                        android:text="@string/share"
+                        app:icon="@drawable/ic_share" />
 
-                        <ImageView
-                            android:layout_width="24dp"
-                            android:layout_height="25dp"
-                            android:src="@drawable/ic_share" />
-
-                        <TextView
-                            style="@style/PlayerActionsText"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/share" />
-                    </LinearLayout>
-
-                    <LinearLayout
+                    <com.google.android.material.button.MaterialButton
                         android:id="@+id/relPlayer_download"
-                        style="@style/PlayerActionsLayout"
-                        android:layout_weight="1">
+                        style="@style/PlayerActionsButton"
+                        android:text="@string/download"
+                        app:icon="@drawable/ic_download" />
 
-                        <ImageView
-                            android:layout_width="24dp"
-                            android:layout_height="25dp"
-                            android:src="@drawable/ic_download" />
-
-                        <TextView
-                            style="@style/PlayerActionsText"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/download" />
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:id="@+id/relPlayer_open"
-                        style="@style/PlayerActionsLayout"
-                        android:layout_weight="1">
-
-                        <ImageView
-                            android:layout_width="24dp"
-                            android:layout_height="25dp"
-                            android:padding="2dp"
-                            android:src="@drawable/ic_open" />
-
-                        <TextView
-                            style="@style/PlayerActionsText"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/open" />
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:id="@+id/relPlayer_background"
-                        style="@style/PlayerActionsLayout"
-                        android:layout_weight="1">
-
-                        <ImageView
-                            android:layout_width="24dp"
-                            android:layout_height="25dp"
-                            android:src="@drawable/ic_headphones" />
-
-                        <TextView
-                            style="@style/PlayerActionsText"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/audio" />
-                    </LinearLayout>
-
-                    <LinearLayout
+                    <com.google.android.material.button.MaterialButton
                         android:id="@+id/relPlayer_save"
-                        style="@style/PlayerActionsLayout"
-                        android:layout_weight="1">
+                        style="@style/PlayerActionsButton"
+                        android:text="@string/save"
+                        app:icon="@drawable/ic_save" />
 
-                        <ImageView
-                            android:layout_width="24dp"
-                            android:layout_height="25dp"
-                            android:src="@drawable/ic_save" />
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/relPlayer_background"
+                        style="@style/PlayerActionsButton"
+                        android:text="@string/audio"
+                        app:icon="@drawable/ic_headphones" />
 
-                        <TextView
-                            style="@style/PlayerActionsText"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/save" />
-                    </LinearLayout>
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/relPlayer_external_player"
+                        style="@style/PlayerActionsButton"
+                        android:text="@string/external_player"
+                        app:icon="@drawable/ic_video" />
 
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/relPlayer_pip"
+                        style="@style/PlayerActionsButton"
+                        android:text="@string/pip"
+                        app:icon="@drawable/ic_open" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/relPlayer_screenshot"
+                        style="@style/PlayerActionsButton"
+                        android:text="@string/screenshot"
+                        app:icon="@drawable/ic_copy" />
                 </LinearLayout>
 
-            </com.google.android.material.card.MaterialCardView>
+            </HorizontalScrollView>
 
             <LinearLayout
                 android:id="@+id/player_channel"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginHorizontal="8dp"
-                android:layout_marginVertical="15dp"
+                android:layout_marginHorizontal="2dp"
+                android:layout_marginVertical="10dp"
                 android:background="@drawable/rounded_ripple"
                 android:orientation="horizontal"
-                android:paddingLeft="8dp"
-                android:paddingRight="8dp">
+                android:padding="5dp">
 
-                <de.hdodenhof.circleimageview.CircleImageView
+                <com.google.android.material.imageview.ShapeableImageView
                     android:id="@+id/player_channelImage"
                     android:layout_width="40dp"
                     android:layout_height="40dp"
                     android:layout_gravity="center"
-                    android:layout_marginEnd="4dp" />
+                    android:layout_marginEnd="4dp"
+                    app:shapeAppearance="@style/CircleImageView" />
 
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_gravity="center"
-                    android:layout_marginHorizontal="5dp"
+                    android:layout_gravity="start|center_vertical"
+                    android:layout_marginStart="5dp"
+                    android:layout_marginEnd="8dp"
                     android:layout_weight="1"
                     android:layoutDirection="locale"
                     android:orientation="vertical">
 
                     <TextView
                         android:id="@+id/player_channelName"
-                        android:layout_width="match_parent"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_gravity="center"
                         android:ellipsize="end"
                         android:maxLines="1"
                         android:textSize="15sp" />
 
                     <TextView
                         android:id="@+id/player_channelSubCount"
-                        android:layout_width="match_parent"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_gravity="center"
                         android:ellipsize="end"
                         android:maxLines="1"
                         android:textSize="11sp"
@@ -290,82 +137,30 @@
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/player_subscribe"
-                    style="@style/Widget.Material3.Button.ElevatedButton"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_gravity="center"
                     android:text="@string/subscribe"
-                    android:textColor="?android:attr/textColorPrimary"
-                    android:textSize="12sp"
-                    app:cornerRadius="11dp" />
+                    android:textSize="12sp" />
             </LinearLayout>
 
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/alternativeTrendingRec"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginHorizontal="12dp" />
-
-            <com.google.android.material.card.MaterialCardView
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/comments_toggle"
-                style="@style/Widget.Material3.CardView.Elevated"
+                style="@style/PlayerActionsButton"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_margin="16dp"
-                app:cardCornerRadius="18dp">
+                android:layout_marginHorizontal="20dp"
+                android:layout_marginVertical="10dp"
+                android:text="@string/comments"
+                android:textAlignment="viewStart"
+                android:textColor="?colorPrimary"
+                app:drawableEndCompat="@drawable/ic_arrow_up_down"
+                app:drawableTint="?colorPrimary" />
 
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:layout_margin="8dp"
-                    android:orientation="horizontal">
-
-                    <TextView
-                        android:id="@+id/commentsToggle_textView"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="8dp"
-                        android:layout_weight="1"
-                        android:text="@string/comments"
-                        android:textSize="17sp" />
-
-                    <ImageView
-                        android:id="@+id/commentsToggle_imageView"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_gravity="center"
-                        android:layout_marginEnd="3dp"
-                        android:src="@drawable/ic_arrow_up_down" />
-
-                </LinearLayout>
-
-            </com.google.android.material.card.MaterialCardView>
-
-            <RelativeLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:animateLayoutChanges="true"
-                android:descendantFocusability="blocksDescendants">
-
-                <androidx.recyclerview.widget.RecyclerView
-                    android:id="@+id/comments_recView"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:layout_marginBottom="10dp"
-                    android:nestedScrollingEnabled="false"
-                    android:visibility="gone" />
-
-                <androidx.recyclerview.widget.RecyclerView
-                    android:id="@+id/related_rec_view"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="10dp"
-                    android:layout_marginTop="10dp"
-                    android:layout_marginEnd="10dp"
-                    android:layout_marginBottom="10dp"
-                    android:nestedScrollingEnabled="false" />
-            </RelativeLayout>
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/related_rec_view"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
 
         </LinearLayout>
 
@@ -375,21 +170,23 @@
         android:id="@+id/main_container"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:background="?attr/colorSurface"
+        android:background="?attr/colorSurfaceContainerLow"
         app:layout_constraintDimensionRatio="16:9"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <com.github.libretube.ui.views.CustomExoPlayerView
+    <com.github.libretube.ui.views.OnlinePlayerView
         android:id="@+id/player"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:background="@android:color/black"
+        app:controller_layout_id="@layout/exo_styled_player_control_view"
         app:layout_constraintBottom_toBottomOf="@id/main_container"
         app:layout_constraintStart_toStartOf="@id/main_container"
         app:layout_constraintTop_toTopOf="@id/main_container"
-        app:show_buffering="when_playing">
+        app:show_buffering="when_playing"
+        app:surface_type="surface_view">
 
         <com.github.libretube.ui.views.DoubleTapOverlay
             android:id="@+id/doubleTapOverlay"
@@ -408,49 +205,47 @@
         <com.google.android.material.card.MaterialCardView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_gravity="bottom|end"
+            android:layout_gravity="center|end"
+            android:layout_marginTop="15dp"
             android:layout_marginEnd="-10dp"
-            android:layout_marginBottom="60dp"
-            android:paddingEnd="10dp"
+            android:paddingEnd="20dp"
             app:cardBackgroundColor="#88000000"
             app:strokeWidth="1dp"
             tools:ignore="RtlSymmetry">
 
-            <LinearLayout
+            <com.github.libretube.ui.views.DrawableTextView
                 android:id="@+id/sb_skip_btn"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:drawablePadding="20dp"
                 android:padding="10dp"
-                android:visibility="gone">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/skip_segment"
-                    android:textColor="@android:color/white"
-                    android:textSize="18sp" />
-
-                <ImageView
-                    android:layout_width="20dp"
-                    android:layout_height="20dp"
-                    android:layout_gravity="center"
-                    android:layout_marginHorizontal="10dp"
-                    android:src="@drawable/ic_next"
-                    app:tint="@android:color/white" />
-
-            </LinearLayout>
+                android:text="@string/skip_segment"
+                android:textColor="@android:color/white"
+                android:textSize="18sp"
+                android:visibility="gone"
+                app:drawableEndCompat="@drawable/ic_next"
+                app:drawableEndDimen="20dp"
+                app:drawableTint="@android:color/white" />
 
         </com.google.android.material.card.MaterialCardView>
 
-    </com.github.libretube.ui.views.CustomExoPlayerView>
+        <com.github.libretube.ui.views.AutoplayCountdownView
+            android:id="@+id/autoplay_countdown"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone" />
+
+    </com.github.libretube.ui.views.OnlinePlayerView>
 
     <ImageView
         android:id="@+id/close_imageView"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginEnd="16dp"
         android:alpha="0"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:padding="8dp"
         android:src="@drawable/ic_close"
+        android:tooltipText="@string/tooltip_close"
         android:visibility="gone"
         app:layout_constraintBottom_toBottomOf="@id/main_container"
         app:layout_constraintEnd_toEndOf="@id/main_container"
@@ -460,9 +255,11 @@
         android:id="@+id/play_imageView"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginEnd="24dp"
         android:alpha="0"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:padding="8dp"
         android:src="@drawable/ic_play"
+        android:tooltipText="@string/tooltip_play"
         android:visibility="gone"
         app:layout_constraintBottom_toBottomOf="@+id/close_imageView"
         app:layout_constraintEnd_toStartOf="@+id/close_imageView"
@@ -475,9 +272,8 @@
         android:alpha="0"
         android:ellipsize="end"
         android:maxLines="1"
+        android:paddingHorizontal="8dp"
         android:paddingVertical="15dp"
-        android:paddingStart="8dp"
-        android:paddingEnd="12dp"
         android:visibility="gone"
         app:layout_constraintBottom_toBottomOf="@+id/play_imageView"
         app:layout_constraintEnd_toStartOf="@+id/play_imageView"

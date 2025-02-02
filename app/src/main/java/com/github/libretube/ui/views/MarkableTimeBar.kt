@@ -5,25 +5,27 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Rect
 import android.util.AttributeSet
-import com.github.libretube.R
+import android.view.View
+import androidx.core.view.marginLeft
+import androidx.media3.common.util.UnstableApi
 import com.github.libretube.api.obj.Segment
-import com.github.libretube.constants.PreferenceKeys
-import com.github.libretube.util.PreferenceHelper
-import com.github.libretube.util.ThemeHelper
-import com.google.android.exoplayer2.Player
-import com.google.android.exoplayer2.ui.DefaultTimeBar
+import com.github.libretube.extensions.dpToPx
+import com.github.libretube.helpers.PreferenceHelper
+import com.github.libretube.helpers.ThemeHelper
+import com.google.android.material.R
 
 /**
  * TimeBar that can be marked with SponsorBlock Segments
  */
+@UnstableApi
 class MarkableTimeBar(
     context: Context,
     attributeSet: AttributeSet? = null
-) : DefaultTimeBar(context, attributeSet) {
-
-    private var segments: List<Segment> = listOf()
-    private var player: Player? = null
+) : DismissableTimeBar(context, attributeSet) {
+    private var segments = listOf<Segment>()
     private var length: Int = 0
+
+    private val progressBarHeight = 2f.dpToPx()
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
@@ -31,33 +33,38 @@ class MarkableTimeBar(
     }
 
     private fun drawSegments(canvas: Canvas) {
-        if (player == null) return
-
-        if (!PreferenceHelper.getBoolean(PreferenceKeys.SB_SHOW_MARKERS, false)) return
+        if (exoPlayer == null) return
 
         canvas.save()
-        length = canvas.width - 2 * HORIZONTAL_OFFSET
-
-        val marginY = canvas.height / 2 - PROGRESS_BAR_HEIGHT / 2
+        val horizontalOffset = (parent as View).marginLeft
+        length = canvas.width - horizontalOffset * 2
+        val marginY = canvas.height / 2 - progressBarHeight / 2
+        val themeColor = ThemeHelper.getThemeColor(context, R.attr.colorOnSecondary)
 
         segments.forEach {
+            val (start, end) = it.segmentStartAndEnd
+
             canvas.drawRect(
                 Rect(
-                    (it.segment.first() + HORIZONTAL_OFFSET).toLength(),
-                    marginY - 1,
-                    (it.segment.last() + HORIZONTAL_OFFSET).toLength(),
+                    start.toLength() + horizontalOffset,
+                    marginY,
+                    end.toLength() + horizontalOffset,
                     canvas.height - marginY
                 ),
                 Paint().apply {
-                    color = ThemeHelper.getThemeColor(context, R.attr.colorOnSecondary)
+                    color = if (PreferenceHelper.getBoolean("sb_enable_custom_colors", false)) {
+                        PreferenceHelper.getInt(it.category + "_color", themeColor)
+                    } else {
+                        themeColor
+                    }
                 }
             )
         }
         canvas.restore()
     }
 
-    private fun Double.toLength(): Int {
-        return (this * 1000 / player!!.duration * length).toInt()
+    private fun Float.toLength(): Int {
+        return (this * 1000 / exoPlayer!!.duration * length).toInt()
     }
 
     fun setSegments(segments: List<Segment>) {
@@ -66,14 +73,5 @@ class MarkableTimeBar(
 
     fun clearSegments() {
         segments = listOf()
-    }
-
-    fun setPlayer(player: Player) {
-        this.player = player
-    }
-
-    companion object {
-        const val HORIZONTAL_OFFSET = 10
-        const val PROGRESS_BAR_HEIGHT = 4
     }
 }
