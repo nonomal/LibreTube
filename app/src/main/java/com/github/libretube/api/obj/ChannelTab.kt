@@ -1,9 +1,12 @@
 package com.github.libretube.api.obj
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import android.os.Parcelable
+import kotlinx.parcelize.Parcelize
+import kotlinx.serialization.Serializable
 
-@JsonIgnoreProperties(ignoreUnknown = true)
+@Serializable
+@Parcelize
 data class ChannelTab(
-    val name: String? = null,
-    val data: String? = null
-)
+    val name: String,
+    val data: String
+) : Parcelable

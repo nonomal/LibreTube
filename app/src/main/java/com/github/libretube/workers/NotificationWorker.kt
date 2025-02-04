@@ -1,44 +1,47 @@
 package com.github.libretube.workers
 
-import android.app.NotificationManager
-import android.app.PendingIntent
+import android.Manifest
+import android.app.Notification
+import android.app.PendingIntent.FLAG_UPDATE_CURRENT
 import android.content.Context
 import android.content.Intent
-import android.os.Build
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import androidx.work.Worker
+import androidx.core.app.NotificationManagerCompat.NotificationWithIdAndTag
+import androidx.core.app.PendingIntentCompat
+import androidx.core.content.ContextCompat
+import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.github.libretube.LibreTubeApp.Companion.PUSH_CHANNEL_NAME
 import com.github.libretube.R
 import com.github.libretube.api.SubscriptionHelper
-import com.github.libretube.constants.PUSH_CHANNEL_ID
+import com.github.libretube.api.obj.StreamItem
+import com.github.libretube.constants.IntentData
 import com.github.libretube.constants.PreferenceKeys
+import com.github.libretube.extensions.TAG
 import com.github.libretube.extensions.toID
+import com.github.libretube.helpers.ImageHelper
+import com.github.libretube.helpers.PreferenceHelper
 import com.github.libretube.ui.activities.MainActivity
 import com.github.libretube.ui.views.TimePickerPreference
-import com.github.libretube.util.PreferenceHelper
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.withContext
 import java.time.LocalTime
 
 /**
  * The notification worker which checks for new streams in a certain frequency
  */
 class NotificationWorker(appContext: Context, parameters: WorkerParameters) :
-    Worker(appContext, parameters) {
+    CoroutineWorker(appContext, parameters) {
+    private val notificationManager = NotificationManagerCompat.from(appContext)
 
-    private val notificationManager =
-        appContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
-    // the id where notification channels start
-    private var notificationId = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        notificationManager.activeNotifications.size + 5
-    } else {
-        5
-    }
-
-    override fun doWork(): Result {
-        if (!checkTime()) Result.success()
+    override suspend fun doWork(): Result {
+        if (!checkTime()) return Result.success()
         // check whether there are new streams and notify if there are some
         val result = checkForNewStreams()
         // return success if the API request succeeded
@@ -49,24 +52,19 @@ class NotificationWorker(appContext: Context, parameters: WorkerParameters) :
      * Determine whether the time is valid to notify
      */
     private fun checkTime(): Boolean {
-        if (!PreferenceHelper.getBoolean(
-                PreferenceKeys.NOTIFICATION_TIME_ENABLED,
-                false
-            )
-        ) {
+        if (!PreferenceHelper.getBoolean(PreferenceKeys.NOTIFICATION_TIME_ENABLED, false)) {
             return true
         }
 
         val start = getTimePickerPref(PreferenceKeys.NOTIFICATION_START_TIME)
         val end = getTimePickerPref(PreferenceKeys.NOTIFICATION_END_TIME)
-
         val currentTime = LocalTime.now()
-        val isOverNight = start > end
 
-        val startValid = if (isOverNight) start > currentTime else start < currentTime
-        val endValid = if (isOverNight) end < currentTime else start > currentTime
-
-        return (startValid && endValid)
+        return if (start > end) {
+            currentTime !in end..start
+        } else {
+            currentTime in start..end
+        }
     }
 
     private fun getTimePickerPref(key: String): LocalTime {
@@ -78,112 +76,156 @@ class NotificationWorker(appContext: Context, parameters: WorkerParameters) :
     /**
      * check whether new streams are available in subscriptions
      */
-    private fun checkForNewStreams(): Boolean {
-        var success = true
+    private suspend fun checkForNewStreams(): Boolean {
+        Log.d(TAG(), "Work manager started")
 
-        runBlocking {
-            val task = async {
-                SubscriptionHelper.getFeed()
+        // fetch the users feed
+        val videoFeed = try {
+            withContext(Dispatchers.IO) {
+                SubscriptionHelper.getFeed(forceRefresh = true)
             }
-            // fetch the users feed
-            val videoFeed = try {
-                task.await()
-            } catch (e: Exception) {
-                success = false
-                return@runBlocking
-            }
+        } catch (e: Exception) {
+            return false
+        }
 
-            val lastSeenStreamId = PreferenceHelper.getLastSeenVideoId()
-            val latestFeedStreamId = videoFeed[0].url!!.toID()
+        val lastUserSeenVideoId = PreferenceHelper.getLastSeenVideoId()
+        val mostRecentStreamId = videoFeed.firstOrNull()?.url?.toID() ?: return true
+        // save the latest streams that got notified about
+        PreferenceHelper.setLastSeenVideoId(mostRecentStreamId)
 
-            // first time notifications enabled or no new video available
-            if (lastSeenStreamId == "" || lastSeenStreamId == latestFeedStreamId) {
-                PreferenceHelper.setLatestVideoId(lastSeenStreamId)
-                return@runBlocking
-            }
+        // first time notifications are enabled or no new video available
+        if (lastUserSeenVideoId.isEmpty() || lastUserSeenVideoId == mostRecentStreamId) return true
 
-            // filter the new videos out
-            val lastSeenStreamItem = videoFeed.filter { it.url!!.toID() == lastSeenStreamId }
+        val channelsToIgnore = PreferenceHelper.getIgnorableNotificationChannels()
+        val enableShortsNotification =
+            PreferenceHelper.getBoolean(PreferenceKeys.SHORTS_NOTIFICATIONS, false)
 
-            // previous video not found
-            if (lastSeenStreamItem.isEmpty()) return@runBlocking
-
-            val lastStreamIndex = videoFeed.indexOf(lastSeenStreamItem[0])
-            val newVideos = videoFeed.filterIndexed { index, _ ->
-                index < lastStreamIndex
-            }
-
+        val channelGroups = videoFeed.asSequence()
+            // filter the new videos until the last seen video in the feed
+            .takeWhile { it.url!!.toID() != lastUserSeenVideoId }
+            // don't show notifications for shorts videos if not enabled
+            .filter { enableShortsNotification || !it.isShort }
             // hide for notifications unsubscribed channels
-            val channelsToIgnore = PreferenceHelper.getIgnorableNotificationChannels()
-            val filteredVideos = newVideos.filter {
-                channelsToIgnore.none { channelId ->
-                    channelId == it.uploaderUrl?.toID()
-                }
-            }
-
+            .filter { it.uploaderUrl!!.toID() !in channelsToIgnore }
             // group the new streams by the uploader
-            val channelGroups = filteredVideos.groupBy { it.uploaderUrl }
-            // create a notification for each new stream
-            channelGroups.forEach { (_, streams) ->
-                createNotification(
-                    group = streams[0].uploaderUrl!!.toID(),
-                    title = streams[0].uploaderName.toString(),
-                    isSummary = true
-                )
+            .groupBy { it.uploaderUrl!!.toID() }
 
-                streams.forEach { streamItem ->
-                    notificationId += 1
-                    createNotification(
-                        title = streamItem.title.toString(),
-                        description = streamItem.uploaderName.toString(),
-                        group = streamItem.uploaderUrl!!.toID()
-                    )
-                }
-            }
-            // save the latest streams that got notified about
-            PreferenceHelper.setLatestVideoId(videoFeed[0].url!!.toID())
+        // return if the previous video didn't get found or all the channels have notifications disabled
+        if (channelGroups.isEmpty()) return true
+
+        Log.d(TAG(), "Create notifications for new videos")
+
+        // create a notification for each new stream
+        channelGroups.forEach { (channelId, streams) ->
+            createNotificationsForChannel(channelId, streams)
         }
         // return whether the work succeeded
-        return success
+        return true
     }
 
     /**
-     * Notification that is created when new streams are found
+     * Group of notifications created when new streams are found in a given channel.
+     *
+     * For more information, see https://developer.android.com/develop/ui/views/notifications/group
      */
-    private fun createNotification(
-        title: String,
-        group: String,
-        description: String? = null,
-        isSummary: Boolean = false
-    ) {
-        val intent = Intent(applicationContext, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+    private suspend fun createNotificationsForChannel(group: String, streams: List<StreamItem>) {
+        // Avoid creating notifications if permission is not granted.
+        if (ContextCompat.checkSelfPermission(
+                applicationContext,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
         }
-        val pendingIntent: PendingIntent = PendingIntent.getActivity(
-            applicationContext,
-            0,
-            intent,
-            PendingIntent.FLAG_IMMUTABLE
-        )
 
-        val builder = NotificationCompat.Builder(applicationContext, PUSH_CHANNEL_ID)
-            .setContentTitle(title)
-            .setGroup(group)
+        val summaryId = group.hashCode()
+        val intent = Intent(applicationContext, MainActivity::class.java)
+            .setFlags(INTENT_FLAGS)
+            .putExtra(IntentData.channelId, group)
+        val pendingIntent = PendingIntentCompat
+            .getActivity(applicationContext, summaryId, intent, FLAG_UPDATE_CURRENT, false)
+
+        // Create summary notification containing new streams for Android versions below 7.0.
+        val newStreams = applicationContext.resources
+            .getQuantityString(R.plurals.channel_new_streams, streams.size, streams.size)
+        val summary = NotificationCompat.InboxStyle()
+            .setSummaryText(newStreams)
+        streams.forEach {
+            summary.addLine(it.title)
+        }
+        val summaryNotification = createNotificationBuilder(group)
+            .setContentTitle(streams[0].uploaderName)
+            .setContentText(newStreams)
+            // The intent that will fire when the user taps the notification
+            .setContentIntent(pendingIntent)
+            .setGroupSummary(true)
+            .setStyle(summary)
+            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
+            // Show channel avatar on Android versions below 7.0.
+            .setLargeIcon(downloadImage(streams[0].uploaderAvatar))
+            .build()
+
+        // Create stream notifications. These are automatically grouped on Android 7.0 and later.
+        val notifications = withContext(Dispatchers.IO) {
+            streams.map { async { createStreamNotification(group, it) } }
+                .awaitAll()
+        }
+        notificationManager.notify(notifications)
+        notificationManager.notify(summaryId, summaryNotification)
+    }
+
+    private suspend fun createStreamNotification(
+        group: String,
+        stream: StreamItem
+    ): NotificationWithIdAndTag {
+        val videoId = stream.url!!.toID()
+        val intent = Intent(applicationContext, MainActivity::class.java)
+            .setFlags(INTENT_FLAGS)
+            .putExtra(IntentData.videoId, videoId)
+        val notificationId = videoId.hashCode()
+        val pendingIntent = PendingIntentCompat
+            .getActivity(applicationContext, notificationId, intent, FLAG_UPDATE_CURRENT, false)
+
+        // Load stream thumbnails if the relevant toggle is enabled.
+        val thumbnail = downloadImage(stream.thumbnail)
+
+        val notificationBuilder = createNotificationBuilder(group)
+            .setContentTitle(stream.title)
+            .setContentText(stream.uploaderName)
+            // The intent that will fire when the user taps the notification
+            .setContentIntent(pendingIntent)
+            .setSilent(true)
+            .setLargeIcon(thumbnail)
+            .setStyle(
+                NotificationCompat.BigPictureStyle()
+                    .bigPicture(thumbnail)
+                    .bigLargeIcon(null as Bitmap?) // Hides the icon when expanding
+            )
+            .setWhen(stream.uploaded)
+            .setShowWhen(true)
+
+        return NotificationWithIdAndTag(notificationId, notificationBuilder.build())
+    }
+
+    private suspend fun downloadImage(url: String?): Bitmap? {
+        return if (PreferenceHelper.getBoolean(PreferenceKeys.SHOW_STREAM_THUMBNAILS, false)) {
+            ImageHelper.getImage(applicationContext, url)
+        } else {
+            null
+        }
+    }
+
+    private fun createNotificationBuilder(group: String): NotificationCompat.Builder {
+        return NotificationCompat.Builder(applicationContext, PUSH_CHANNEL_NAME)
             .setSmallIcon(R.drawable.ic_launcher_lockscreen)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            // Set the intent that will fire when the user taps the notification
-            .setContentIntent(pendingIntent)
             .setAutoCancel(true)
+            .setGroup(group)
+            .setCategory(Notification.CATEGORY_SOCIAL)
+    }
 
-        if (isSummary) {
-            builder.setGroupSummary(true)
-        } else {
-            builder.setContentText(description)
-        }
-
-        with(NotificationManagerCompat.from(applicationContext)) {
-            // notificationId is a unique int for each notification that you must define
-            notify(notificationId, builder.build())
-        }
+    companion object {
+        private const val INTENT_FLAGS = Intent.FLAG_ACTIVITY_CLEAR_TOP or
+            Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
     }
 }

@@ -19,39 +19,35 @@ jobs:
   debug-builds:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: gradle/wrapper-validation-action@v1
-      - uses: actions/setup-python@v4
+      - uses: actions/checkout@v4
+      - uses: gradle/wrapper-validation-action@v3
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.x' # Version range or exact version of a Python version to use, using SemVer's version range syntax
           architecture: 'x64' # optional x64 or x86. Defaults to x64 if not specified
 
-      - name: Check for Execution Orders
+      - name: Retrieve Commit Info
         run: |
           cd .github
           curl https://api.github.com/repos/${{ github.repository }}/commits/${{ github.sha }} > commit.json
-          python checkrun.py
           cd ..
 
-      - name: Set up JDK 11
-        uses: actions/setup-java@v3
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
         with:
-          java-version: 11
+          java-version: 17
           distribution: "temurin"
           cache: "gradle"
 
       - name: Git Configuraion
         run: |
-          git config --global user.name "alefvanoon"
-          git config --global user.email "53198048+alefvanoon@users.noreply.github.com"
+          git config --global user.name "libretube-bot"
+          git config --global user.email "libretube@proton.me"
           git config --global credential.helper store
-          echo "https://alefvanoon:${{ secrets.GH_TOKEN }}@github.com" > ~/.git-credentials
+          echo "https://libretube-bot:${{ secrets.GH_TOKEN }}@github.com" > ~/.git-credentials
 
-      - name: Patch and Compile
+      - name: Compile
         run: |
-          cd .github
-          python patch.py
-          cd ..
           ./gradlew assembleDebug
 
       - name: Sign Apk
@@ -64,36 +60,22 @@ jobs:
           keyAlias: ${{ secrets.ANDROID_KEY_ALIAS }}
           keyStorePassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           keyPassword: ${{ secrets.ANDROID_KEY_PASSWORD }}
-
+          buildToolsVersion: 35.0.0
 
       - name: Upload to Archive
         continue-on-error: true
         run: |
           mv .github/uploader.py .
-          echo "GH_REPO = '${{ github.repository }}'" > tgconfig.py
-          git clone https://github.com/LibreTubeAlpha/Archive archive
-          rm -rf archive/*.apk
-          mv app/build/outputs/apk/debug/*-signed.apk archive/
-          cd archive
+          echo "GH_REPO = '${{ github.repository }}'" > config_file.py
+          git clone --filter=blob:none https://github.com/libre-tube/NightlyBuilds nightly
+          rm -rf nightly/*.apk
+          mv app/build/outputs/apk/debug/*.apk nightly/
+          cd nightly
           python ../uploader.py
       
-      - name: Telegram Bot
-        continue-on-error: true
-        run: |
-          cd archive
-          mv ../tgconfig.py .
-          echo "TG_TOKEN = '${{ secrets.TG_TOKEN }}'" >> tgconfig.py
-          echo "TG_API_ID = '${{ secrets.TG_API_ID }}'" >> tgconfig.py
-          echo "TG_POST_ID = '${{ secrets.TG_POST_ID }}'" >> tgconfig.py
-          echo "TG_API_HASH = '${{ secrets.TG_API_HASH }}'" >> tgconfig.py
-          python -m pip install --upgrade pip TgCrypto Pyrogram
-          mv ../.github/tg.py .
-          mv ../.github/commit.json .
-          python tg.py
-
       - name: Upload APK
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: app
-          path: archive/*-signed.apk
+          path: nightly/*.apk
 

@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
 
-    <style name="roundedImageViewRounded">
+    <style name="RoundedImageView">
 
         <item name="cornerFamily">rounded</item>
-        <item name="cornerSize">10%</item>
+        <item name="cornerSize">8%</item>
 
     </style>
 
@@ -17,8 +17,8 @@
 
     <style name="AboutCard" parent="Widget.Material3.CardView.Elevated">
 
-        <item name="android:layout_marginLeft">10dp</item>
-        <item name="android:layout_marginRight">5dp</item>
+        <item name="android:layout_marginStart">10dp</item>
+        <item name="android:layout_marginEnd">10dp</item>
         <item name="android:layout_marginBottom">5dp</item>
         <item name="android:layout_marginTop">10dp</item>
         <item name="strokeWidth">0dp</item>
@@ -31,78 +31,55 @@
 
     <style name="AboutItem">
 
-        <item name="android:orientation">horizontal</item>
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:layout_marginLeft">20dp</item>
-        <item name="android:layout_marginRight">20dp</item>
-        <item name="android:layout_marginTop">15dp</item>
-        <item name="android:layout_marginBottom">15dp</item>
-
-    </style>
-
-    <style name="AboutTextView">
-
-        <item name="android:layout_height">wrap_content</item>
-        <item name="android:layout_width">wrap_content</item>
-        <item name="android:layout_gravity">center</item>
         <item name="android:textSize">16sp</item>
         <item name="android:textStyle">bold</item>
-
-    </style>
-
-    <style name="AboutImageView">
-
-        <item name="android:layout_height">24dp</item>
-        <item name="android:layout_width">24dp</item>
-        <item name="android:layout_marginRight">10dp</item>
-
-    </style>
-
-    <style name="CustomDialogButton" parent="@style/Widget.Material3.Button.TextButton">
-
-        <item name="android:layout_width">wrap_content</item>
-        <item name="android:layout_height">wrap_content</item>
-        <item name="android:layout_gravity">end</item>
-        <item name="android:layout_marginBottom">8dp</item>
-        <item name="android:padding">8dp</item>
-
+        <item name="android:textAlignment">viewStart</item>
+        <item name="android:drawablePadding">20dp</item>
+        <item name="android:paddingStart">15dp</item>
+        <item name="android:paddingEnd">15dp</item>
+        <item name="android:paddingTop">15dp</item>
+        <item name="android:paddingBottom">15dp</item>
     </style>
 
     <style name="CustomDialogTextInputLayout" parent="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
 
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:layout_marginLeft">15dp</item>
-        <item name="android:layout_marginRight">15dp</item>
+        <item name="android:layout_marginStart">15dp</item>
+        <item name="android:layout_marginEnd">15dp</item>
         <item name="android:layout_marginTop">5dp</item>
         <item name="android:layout_marginBottom">10dp</item>
 
     </style>
 
-    <style name="PlayerActionsLayout">
+    <style name="DisabledTextInput">
 
-        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:layout_weight">1</item>
-        <item name="android:background">?attr/selectableItemBackgroundBorderless</item>
-        <item name="android:gravity">center</item>
-        <item name="android:orientation">vertical</item>
+        <item name="android:editable">false</item>
+        <item name="android:textIsSelectable">true</item>
 
     </style>
 
-    <style name="PlayerActionsText">
-        <item name="android:autoSizeTextType" tools:targetApi="o">uniform</item>
-        <item name="android:autoSizeMinTextSize" tools:targetApi="o">10sp</item>
-        <item name="android:maxLines">1</item>
-        <item name="android:gravity">bottom</item>
+    <style name="PlayerActionsButton" parent="@style/Widget.Material3.Button.ElevatedButton">
+
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginStart">4dp</item>
+        <item name="android:layout_marginEnd">4dp</item>
+        <item name="iconGravity">textStart</item>
+        <item name="android:textColor">?colorPrimary</item>
+        <item name="iconTint">?colorPrimary</item>
+
     </style>
 
     <style name="PlayerControlBottom">
 
         <item name="android:padding">9dp</item>
-        <item name="android:layout_height">36dp</item>
-        <item name="android:layout_width">36dp</item>
+        <item name="android:layout_height">42dp</item>
+        <item name="android:layout_width">42dp</item>
         <item name="android:layout_gravity">center</item>
         <item name="android:background">?attr/selectableItemBackgroundBorderless</item>
 
@@ -129,10 +106,9 @@
 
     <style name="WatchProgress">
 
-        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_width">0dp</item>
         <item name="android:layout_height">4dp</item>
-        <item name="android:layout_gravity">bottom</item>
-        <item name="android:background">@android:color/holo_red_dark</item>
+        <item name="android:background">?colorPrimaryDark</item>
         <item name="android:visibility">gone</item>
 
     </style>
@@ -151,22 +127,20 @@
 
     <style name="SwipeControlString">
         <item name="android:gravity">center</item>
-        <item name="android:layout_gravity">center_vertical</item>
+        <item name="android:layout_gravity">center_horizontal</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:layout_width">wrap_content</item>
-        <item name="paddingEnd">5dp</item>
+        <item name="android:layout_width">match_parent</item>
         <item name="android:textSize">14sp</item>
+        <item name="android:lines">1</item>
         <item name="android:textStyle">normal</item>
         <item name="android:textColor">@android:color/white</item>
         <item name="android:text">0</item>
     </style>
 
-    <style name="Chip" parent="Widget.Material3.Chip.Suggestion">
+    <style name="Chip" parent="Widget.Material3.Chip.Filter">
 
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_width">wrap_content</item>
-        <item name="chipStrokeWidth">0dp</item>
-        <item name="chipCornerRadius">20dp</item>
 
     </style>
 
@@ -174,11 +148,8 @@
 
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:paddingLeft">6dp</item>
-        <item name="android:paddingRight">6dp</item>
-        <item name="android:paddingTop">8dp</item>
-        <item name="android:paddingBottom">8dp</item>
-        <item name="android:background">?attr/selectableItemBackground</item>
+        <item name="android:padding">8dp</item>
+        <item name="android:background">@drawable/rounded_ripple</item>
         <item name="android:orientation">horizontal</item>
 
     </style>
@@ -224,10 +195,39 @@
         <item name="android:layout_height">wrap_content</item>
         <item name="android:textSize">20sp</item>
         <item name="android:textColor">?attr/colorControlNormal</item>
+        <item name="android:textAlignment">viewStart</item>
         <item name="android:padding">15dp</item>
         <item name="android:background">?attr/selectableItemBackground</item>
         <item name="android:visibility">gone</item>
 
+    </style>
+
+    <style name="TextViewMarquee">
+
+        <item name="android:singleLine">true</item>
+        <item name="android:ellipsize">marquee</item>
+        <item name="android:marqueeRepeatLimit">marquee_forever</item>
+        <item name="android:scrollHorizontally">true</item>
+        <item name="android:textAlignment">center</item>
+
+    </style>
+
+    <style name="ElevatedFilterChip" parent="Widget.Material3.Chip.Filter.Elevated">
+
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginStart">5dp</item>
+        <item name="android:layout_marginEnd">5dp</item>
+
+    </style>
+
+    <style name="QueueSheetOption">
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:background">?selectableItemBackgroundBorderless</item>
+        <item name="android:layout_marginStart">4dp</item>
+        <item name="android:layout_marginEnd">4dp</item>
+        <item name="android:padding">5dp</item>
     </style>
 
 </resources>

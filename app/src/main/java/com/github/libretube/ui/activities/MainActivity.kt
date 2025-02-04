@@ -1,59 +1,101 @@
 package com.github.libretube.ui.activities
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.Intent
-import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
+import android.view.KeyEvent
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
-import android.view.WindowInsets
-import android.view.WindowInsetsController
-import android.view.WindowManager
-import androidx.activity.OnBackPressedCallback
+import android.view.ViewTreeObserver
+import android.widget.ScrollView
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
+import androidx.annotation.ColorInt
 import androidx.appcompat.widget.SearchView
+import androidx.core.content.pm.ShortcutManagerCompat
+import androidx.core.net.toUri
 import androidx.core.os.bundleOf
+import androidx.core.text.bold
+import androidx.core.text.buildSpannedString
+import androidx.core.view.allViews
 import androidx.core.view.children
-import androidx.lifecycle.ViewModelProvider
+import androidx.core.view.isNotEmpty
+import androidx.core.widget.NestedScrollView
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.NavController
-import androidx.navigation.findNavController
+import androidx.navigation.fragment.NavHostFragment
+import androidx.navigation.ui.onNavDestinationSelected
 import androidx.navigation.ui.setupWithNavController
+import androidx.recyclerview.widget.RecyclerView
+import com.github.libretube.BuildConfig
+import com.github.libretube.NavDirections
 import com.github.libretube.R
+import com.github.libretube.compat.PictureInPictureCompat
 import com.github.libretube.constants.IntentData
 import com.github.libretube.constants.PreferenceKeys
 import com.github.libretube.databinding.ActivityMainBinding
+import com.github.libretube.enums.ImportFormat
 import com.github.libretube.extensions.toID
-import com.github.libretube.services.ClosingService
+import com.github.libretube.helpers.ImportHelper
+import com.github.libretube.helpers.IntentHelper
+import com.github.libretube.helpers.NavBarHelper
+import com.github.libretube.helpers.NavigationHelper
+import com.github.libretube.helpers.NetworkHelper
+import com.github.libretube.helpers.PreferenceHelper
+import com.github.libretube.helpers.ThemeHelper
+import com.github.libretube.helpers.WindowHelper
 import com.github.libretube.ui.base.BaseActivity
 import com.github.libretube.ui.dialogs.ErrorDialog
+import com.github.libretube.ui.dialogs.ImportTempPlaylistDialog
+import com.github.libretube.ui.fragments.AudioPlayerFragment
+import com.github.libretube.ui.fragments.DownloadsFragment
 import com.github.libretube.ui.fragments.PlayerFragment
-import com.github.libretube.ui.models.PlayerViewModel
 import com.github.libretube.ui.models.SearchViewModel
 import com.github.libretube.ui.models.SubscriptionsViewModel
-import com.github.libretube.ui.sheets.PlayingQueueSheet
-import com.github.libretube.ui.tools.BreakReminder
-import com.github.libretube.util.NavBarHelper
-import com.github.libretube.util.NetworkHelper
-import com.github.libretube.util.PlayingQueue
-import com.github.libretube.util.PreferenceHelper
-import com.github.libretube.util.ThemeHelper
+import com.github.libretube.ui.preferences.BackupRestoreSettings.Companion.FILETYPE_ANY
+import com.github.libretube.util.UpdateChecker
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.elevation.SurfaceColors
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 class MainActivity : BaseActivity() {
-
     lateinit var binding: ActivityMainBinding
-
     lateinit var navController: NavController
-    private var startFragmentId = R.id.homeFragment
-
-    val autoRotationEnabled = PreferenceHelper.getBoolean(PreferenceKeys.AUTO_ROTATION, false)
-
     lateinit var searchView: SearchView
     private lateinit var searchItem: MenuItem
+
+    private var startFragmentId = R.id.homeFragment
+
+    private val searchViewModel: SearchViewModel by viewModels()
+    private val subscriptionsViewModel: SubscriptionsViewModel by viewModels()
+
+    private var savedSearchQuery: String? = null
+    private var shouldOpenSuggestions = true
+
+    // registering for activity results is only possible, this here should have been part of
+    // PlaylistOptionsBottomSheet instead if Android allowed us to
+    private var playlistExportFormat: ImportFormat = ImportFormat.NEWPIPE
+    private var exportPlaylistId: String? = null
+    private val createPlaylistsFile = registerForActivityResult(
+        ActivityResultContracts.CreateDocument(FILETYPE_ANY)
+    ) { uri ->
+        if (uri == null) return@registerForActivityResult
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            ImportHelper.exportPlaylists(
+                this@MainActivity,
+                uri,
+                playlistExportFormat,
+                selectedPlaylistIds = listOf(exportPlaylistId!!)
+            )
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,17 +103,15 @@ class MainActivity : BaseActivity() {
         // enable auto rotation if turned on
         requestOrientationChange()
 
-        // start service that gets called on closure
-        try {
-            startService(Intent(this, ClosingService::class.java))
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-
         // show noInternet Activity if no internet available on app startup
         if (!NetworkHelper.isNetworkAvailable(this)) {
             val noInternetIntent = Intent(this, NoInternetActivity::class.java)
             startActivity(noInternetIntent)
+            finish()
+            return
+        } else if (PreferenceHelper.getString(PreferenceKeys.FETCH_INSTANCE, "").isEmpty()) {
+            val welcomeIntent = Intent(this, WelcomeActivity::class.java)
+            startActivity(welcomeIntent)
             finish()
             return
         }
@@ -79,17 +119,19 @@ class MainActivity : BaseActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        // Check update automatically
+        if (PreferenceHelper.getBoolean(PreferenceKeys.AUTOMATIC_UPDATE_CHECKS, false)) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                UpdateChecker(this@MainActivity).checkUpdate(false)
+            }
+        }
+
         // set the action bar for the activity
         setSupportActionBar(binding.toolbar)
 
-        navController = findNavController(R.id.fragment)
+        val navHostFragment = binding.fragment.getFragment<NavHostFragment>()
+        navController = navHostFragment.navController
         binding.bottomNav.setupWithNavController(navController)
-
-        // gets the surface color of the bottom navigation view
-        val color = SurfaceColors.getColorForElevation(this, 10F)
-
-        // sets the navigation bar color to the previously calculated color
-        window.navigationBarColor = color
 
         // save start tab fragment id and apply navbar style
         startFragmentId = try {
@@ -98,11 +140,14 @@ class MainActivity : BaseActivity() {
             R.id.homeFragment
         }
 
-        // set default tab as start fragment
-        navController.graph.setStartDestination(startFragmentId)
+        // sets the color if the navigation bar is visible
+        val bottomNavColor = getBottomNavColor()
+        ThemeHelper.setSystemBarColors(this, window, bottomNavColor)
 
-        // navigate to the default fragment
-        navController.navigate(startFragmentId)
+        // set default tab as start fragment
+        navController.graph = navController.navInflater.inflate(R.navigation.nav).also {
+            it.setStartDestination(startFragmentId)
+        }
 
         binding.bottomNav.setOnApplyWindowInsetsListener(null)
 
@@ -111,81 +156,70 @@ class MainActivity : BaseActivity() {
         binding.bottomNav.setOnItemReselectedListener {
             if (it.itemId != navController.currentDestination?.id) {
                 navigateToBottomSelectedItem(it)
+            } else {
+                // get the current fragment
+                val fragment = navHostFragment.childFragmentManager.fragments.firstOrNull()
+                tryScrollToTop(fragment?.requireView())
             }
         }
 
         binding.bottomNav.setOnItemSelectedListener {
             navigateToBottomSelectedItem(it)
-            false
         }
+
+        if (binding.bottomNav.menu.children.none { it.itemId == startFragmentId }) deselectBottomBarItems()
 
         binding.toolbar.title = ThemeHelper.getStyledAppName(this)
 
-        /**
-         * handle error logs
-         */
-        val log = PreferenceHelper.getErrorLog()
-        if (log != "") ErrorDialog().show(supportFragmentManager, null)
-
-        BreakReminder.setupBreakReminder(applicationContext)
+        // handle error logs
+        PreferenceHelper.getErrorLog().ifBlank { null }?.let {
+            if (!BuildConfig.DEBUG)
+                ErrorDialog().show(supportFragmentManager, null)
+        }
 
         setupSubscriptionsBadge()
 
-        val playerViewModel = ViewModelProvider(this)[PlayerViewModel::class.java]
-
-        // new way of handling back presses
-        onBackPressedDispatcher.addCallback(object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                if (playerViewModel.isFullscreen.value == true) {
-                    for (fragment in supportFragmentManager.fragments) {
-                        if (fragment is PlayerFragment) {
-                            fragment.unsetFullscreen()
-                            return
-                        }
-                    }
-                }
-
-                if (binding.mainMotionLayout.progress == 0F) {
-                    try {
-                        minimizePlayer()
-                        return
-                    } catch (e: Exception) {
-                        // current fragment isn't the player fragment
-                    }
-                }
-
-                when (navController.currentDestination?.id) {
-                    startFragmentId -> {
-                        moveTaskToBack(true)
-                    }
-                    R.id.searchResultFragment -> {
-                        navController.popBackStack(R.id.searchFragment, true) ||
-                            navController.popBackStack()
-                    }
-                    else -> {
-                        navController.popBackStack()
-                    }
-                }
-            }
-        })
-
         loadIntentData()
+
+        showUserInfoDialogIfNeeded()
     }
 
-    /**
-     * Rotate according to the preference
-     */
-    fun requestOrientationChange() {
-        requestedOrientation = if (autoRotationEnabled) {
-            ActivityInfo.SCREEN_ORIENTATION_USER
+    @ColorInt
+    fun getBottomNavColor(): Int? {
+        return if (binding.bottomNav.menu.size() == 0) {
+            null
+        } else if (PreferenceHelper.getBoolean(PreferenceKeys.PURE_THEME, false)) {
+            SurfaceColors.getColorForElevation(this, binding.bottomNav.elevation)
         } else {
-            ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
+            ThemeHelper.getThemeColor(
+                this,
+                com.google.android.material.R.attr.colorSurfaceContainer
+            )
         }
     }
 
-    override fun onPrepareOptionsMenu(menu: Menu?): Boolean {
-        menu?.findItem(R.id.action_queue)?.isVisible = PlayingQueue.isNotEmpty()
-        return super.onPrepareOptionsMenu(menu)
+    /**
+     * Deselect all bottom bar items
+     */
+    private fun deselectBottomBarItems() {
+        binding.bottomNav.menu.setGroupCheckable(0, true, false)
+        for (child in binding.bottomNav.menu.children) {
+            child.isChecked = false
+        }
+        binding.bottomNav.menu.setGroupCheckable(0, true, true)
+    }
+
+    /**
+     * Try to find a scroll or recycler view and scroll it back to the top
+     */
+    private fun tryScrollToTop(view: View?) {
+        val scrollView = view?.allViews
+            ?.firstOrNull { it is ScrollView || it is NestedScrollView || it is RecyclerView }
+        when (scrollView) {
+            is ScrollView -> scrollView.smoothScrollTo(0, 0)
+            is NestedScrollView -> scrollView.smoothScrollTo(0, 0)
+            is RecyclerView -> scrollView.smoothScrollToPosition(0)
+        }
     }
 
     /**
@@ -200,29 +234,46 @@ class MainActivity : BaseActivity() {
             return
         }
 
-        val subscriptionsViewModel = ViewModelProvider(this)[SubscriptionsViewModel::class.java]
-        subscriptionsViewModel.fetchSubscriptions()
+        subscriptionsViewModel.fetchSubscriptions(this)
 
-        subscriptionsViewModel.videoFeed.observe(this) {
-            val lastSeenVideoId = PreferenceHelper.getLastSeenVideoId()
-            val lastSeenVideoIndex = subscriptionsViewModel.videoFeed.value?.indexOfFirst {
-                lastSeenVideoId == it.url?.toID()
-            } ?: return@observe
+        subscriptionsViewModel.videoFeed.observe(this) { feed ->
+            val lastSeenVideoIndex = feed.orEmpty()
+                .indexOfFirst { PreferenceHelper.getLastSeenVideoId() == it.url?.toID() }
             if (lastSeenVideoIndex < 1) return@observe
-            binding.bottomNav.getOrCreateBadge(R.id.subscriptionsFragment).number =
-                lastSeenVideoIndex
+            binding.bottomNav.getOrCreateBadge(R.id.subscriptionsFragment).apply {
+                number = lastSeenVideoIndex
+                backgroundColor = ThemeHelper.getThemeColor(
+                    this@MainActivity,
+                    androidx.appcompat.R.attr.colorPrimary
+                )
+                badgeTextColor = ThemeHelper.getThemeColor(
+                    this@MainActivity,
+                    com.google.android.material.R.attr.colorOnPrimary
+                )
+            }
         }
     }
 
-    /**
-     * Remove the focus of the search view in the toolbar
-     */
-    private fun removeSearchFocus() {
-        searchView.setQuery("", false)
-        searchView.clearFocus()
-        searchView.isIconified = true
-        searchItem.collapseActionView()
-        searchView.onActionViewCollapsed()
+    private fun isSearchInProgress(): Boolean {
+        if (!this::navController.isInitialized) return false
+        val id = navController.currentDestination?.id ?: return false
+
+        return id in listOf(
+            R.id.searchFragment,
+            R.id.searchResultFragment,
+            R.id.channelFragment,
+            R.id.playlistFragment
+        )
+    }
+
+    override fun invalidateMenu() {
+        // Don't invalidate menu when in search in progress
+        // this is a workaround as there is bug in android code
+        // details of bug: https://issuetracker.google.com/issues/244336571
+        if (isSearchInProgress()) {
+            return
+        }
+        super.invalidateMenu()
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -234,19 +285,30 @@ class MainActivity : BaseActivity() {
         this.searchItem = searchItem
         searchView = searchItem.actionView as SearchView
 
-        val searchViewModel = ViewModelProvider(this)[SearchViewModel::class.java]
-
         searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
-            override fun onQueryTextSubmit(query: String?): Boolean {
-                val bundle = Bundle()
-                bundle.putString("query", query)
-                navController.navigate(R.id.searchResultFragment, bundle)
-                searchViewModel.setQuery("")
+            override fun onQueryTextSubmit(query: String): Boolean {
                 searchView.clearFocus()
+
+                // handle inserted YouTube-like URLs and directly open the referenced
+                // channel, playlist or video instead of showing search results
+                if (query.toHttpUrlOrNull() != null) {
+                    val queryIntent = IntentHelper.resolveType(query.toUri())
+
+                    val didNavigate = navigateToMediaByIntent(queryIntent) {
+                        navController.popBackStack(R.id.searchFragment, true)
+                        searchItem.collapseActionView()
+                    }
+                    if (didNavigate) return true
+                }
+
+                navController.navigate(NavDirections.showSearchResults(query))
+
                 return true
             }
 
             override fun onQueryTextChange(newText: String?): Boolean {
+                if (!shouldOpenSuggestions) return true
+
                 // Prevent navigation when search view is collapsed
                 if (searchView.isIconified ||
                     binding.bottomNav.menu.children.any {
@@ -257,20 +319,20 @@ class MainActivity : BaseActivity() {
                 }
 
                 // prevent malicious navigation when the search view is getting collapsed
-                if (navController.currentDestination?.id in listOf(
-                        R.id.searchResultFragment,
-                        R.id.channelFragment,
-                        R.id.playlistFragment
-                    ) &&
-                    (newText == null || newText == "")
-                ) {
+                val destIds = listOf(
+                    R.id.searchResultFragment,
+                    R.id.channelFragment,
+                    R.id.playlistFragment
+                )
+                if (navController.currentDestination?.id in destIds && newText == null) {
                     return false
                 }
 
                 if (navController.currentDestination?.id != R.id.searchFragment) {
-                    val bundle = Bundle()
-                    bundle.putString("query", newText)
-                    navController.navigate(R.id.searchFragment, bundle)
+                    navController.navigate(
+                        R.id.searchFragment,
+                        bundleOf(IntentData.query to newText)
+                    )
                 } else {
                     searchViewModel.setQuery(newText)
                 }
@@ -283,32 +345,44 @@ class MainActivity : BaseActivity() {
             override fun onMenuItemActionExpand(item: MenuItem): Boolean {
                 if (navController.currentDestination?.id != R.id.searchResultFragment) {
                     searchViewModel.setQuery(null)
-                    navController.navigate(R.id.searchFragment)
+                    navController.navigate(R.id.openSearch)
                 }
-                item.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS or MenuItem.SHOW_AS_ACTION_COLLAPSE_ACTION_VIEW)
+                item.setShowAsAction(
+                    MenuItem.SHOW_AS_ACTION_ALWAYS or MenuItem.SHOW_AS_ACTION_COLLAPSE_ACTION_VIEW
+                )
                 return true
             }
 
             override fun onMenuItemActionCollapse(item: MenuItem): Boolean {
-                if (binding.mainMotionLayout.progress == 0F) {
-                    try {
-                        minimizePlayer()
-                    } catch (e: Exception) {
-                        // current fragment isn't the player fragment
-                    }
-                }
-                // Handover back press to `BackPressedDispatcher`
-                else if (binding.bottomNav.menu.children.none {
-                    it.itemId == navController.currentDestination?.id
-                }
-                ) {
+                // Handover back press to `BackPressedDispatcher` if not on a root destination
+                if (navController.previousBackStackEntry != null) {
                     this@MainActivity.onBackPressedDispatcher.onBackPressed()
                 }
 
-                return true
+                // Suppress collapsing of search when search in progress.
+                return !isSearchInProgress()
             }
         })
+
+        // handle search queries passed by the intent
+        if (savedSearchQuery != null) {
+            searchItem.expandActionView()
+            searchView.setQuery(savedSearchQuery, true)
+            savedSearchQuery = null
+        }
+
         return super.onCreateOptionsMenu(menu)
+    }
+
+    /**
+     * Update the query text in the search bar without opening the search suggestions
+     */
+    fun setQuerySilent(query: String) {
+        if (!this::searchView.isInitialized) return
+
+        shouldOpenSuggestions = false
+        searchView.setQuery(query, false)
+        shouldOpenSuggestions = true
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
@@ -321,113 +395,139 @@ class MainActivity : BaseActivity() {
                 startActivity(settingsIntent)
                 true
             }
+
             R.id.action_about -> {
                 val aboutIntent = Intent(this, AboutActivity::class.java)
                 startActivity(aboutIntent)
                 true
             }
-            R.id.action_community -> {
-                val communityIntent = Intent(this, CommunityActivity::class.java)
-                startActivity(communityIntent)
+
+            R.id.action_help -> {
+                val helpIntent = Intent(this, HelpActivity::class.java)
+                startActivity(helpIntent)
                 true
             }
-            R.id.action_queue -> {
-                PlayingQueueSheet().show(supportFragmentManager, null)
+
+            R.id.action_donate -> {
+                IntentHelper.openLinkFromHref(
+                    this,
+                    supportFragmentManager,
+                    AboutActivity.DONATE_URL,
+                    forceDefaultOpen = true
+                )
                 true
             }
+
             else -> super.onOptionsItemSelected(item)
         }
     }
 
     private fun loadIntentData() {
-        intent?.getStringExtra(IntentData.channelId)?.let {
-            navController.navigate(
-                R.id.channelFragment,
-                bundleOf(IntentData.channelName to it)
-            )
+        // If activity is running in PiP mode, then start it in front.
+        if (PictureInPictureCompat.isInPictureInPictureMode(this)) {
+            val nIntent = Intent(this, MainActivity::class.java)
+            nIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            startActivity(nIntent)
         }
-        intent?.getStringExtra(IntentData.channelName)?.let {
-            navController.navigate(
-                R.id.channelFragment,
-                bundleOf(IntentData.channelName to it)
-            )
+
+        if (intent?.getBooleanExtra(IntentData.openAudioPlayer, false) == true) {
+            val offlinePlayer = intent!!.getBooleanExtra(IntentData.offlinePlayer, false)
+            NavigationHelper.openAudioPlayerFragment(this, offlinePlayer = offlinePlayer)
+            return
         }
-        intent?.getStringExtra(IntentData.playlistId)?.let {
-            navController.navigate(
-                R.id.playlistFragment,
-                bundleOf(IntentData.playlistId to it)
-            )
+
+        // navigate to (temporary) playlist or channel if available
+        if (navigateToMediaByIntent(intent)) return
+
+        intent?.getStringExtra(IntentData.query)?.let {
+            savedSearchQuery = it
         }
-        intent?.getStringExtra(IntentData.videoId)?.let {
-            loadVideo(it, intent?.getLongExtra(IntentData.timeStamp, 0L))
+
+        intent?.getStringExtra("fragmentToOpen")?.let {
+            if (it != "downloads") { // Not a shortcut
+                ShortcutManagerCompat.reportShortcutUsed(this, it)
+            }
+
+            when (it) {
+                "home" -> navController.navigate(R.id.homeFragment)
+                "trends" -> navController.navigate(R.id.trendsFragment)
+                "subscriptions" -> navController.navigate(R.id.subscriptionsFragment)
+                "library" -> navController.navigate(R.id.libraryFragment)
+                "downloads" -> navController.navigate(R.id.downloadsFragment)
+            }
         }
-        when (intent?.getStringExtra("fragmentToOpen")) {
-            "home" ->
-                navController.navigate(R.id.homeFragment)
-            "trends" ->
-                navController.navigate(R.id.trendsFragment)
-            "subscriptions" ->
-                navController.navigate(R.id.subscriptionsFragment)
-            "library" ->
-                navController.navigate(R.id.libraryFragment)
-        }
-        if (intent?.getBooleanExtra(IntentData.openQueueOnce, false) == true) {
-            PlayingQueueSheet()
-                .show(supportFragmentManager)
+        if (intent?.getBooleanExtra(IntentData.downloading, false) == true) {
+            (supportFragmentManager.fragments.find { it is NavHostFragment })
+                ?.childFragmentManager?.fragments?.forEach { fragment ->
+                    (fragment as? DownloadsFragment)?.bindDownloadService()
+                }
         }
     }
 
-    private fun loadVideo(videoId: String, timeStamp: Long?) {
-        val bundle = Bundle()
+    /**
+     * Navigates to the channel, video or playlist provided in the [Intent] if available
+     *
+     * @return Whether the method handled the event and triggered the navigation to a new fragment
+     */
+    fun navigateToMediaByIntent(intent: Intent, actionBefore: () -> Unit = {}): Boolean {
+        intent.getStringExtra(IntentData.channelId)?.let {
+            actionBefore()
+            navController.navigate(NavDirections.openChannel(channelId = it))
+            return true
+        }
+        intent.getStringExtra(IntentData.channelName)?.let {
+            actionBefore()
+            navController.navigate(NavDirections.openChannel(channelName = it))
+            return true
+        }
+        intent.getStringExtra(IntentData.playlistId)?.let {
+            actionBefore()
+            navController.navigate(NavDirections.openPlaylist(playlistId = it))
+            return true
+        }
+        intent.getStringArrayExtra(IntentData.videoIds)?.let {
+            actionBefore()
+            ImportTempPlaylistDialog()
+                .apply {
+                    arguments = bundleOf(
+                        IntentData.playlistName to intent.getStringExtra(IntentData.playlistName),
+                        IntentData.videoIds to it
+                    )
+                }
+                .show(supportFragmentManager, null)
+            return true
+        }
 
-        bundle.putString(IntentData.videoId, videoId)
-        if (timeStamp != null) bundle.putLong(IntentData.timeStamp, timeStamp)
+        intent.getStringExtra(IntentData.videoId)?.let {
+            // the below explained work around only seems to work on Android 11 and above
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && binding.bottomNav.menu.isNotEmpty()) {
+                // the bottom navigation bar has to be created before opening the video
+                // otherwise the player layout measures aren't calculated properly
+                // and the miniplayer is opened at a closed state and overlapping the navigation bar
+                binding.bottomNav.viewTreeObserver.addOnGlobalLayoutListener(object :
+                    ViewTreeObserver.OnGlobalLayoutListener {
+                    override fun onGlobalLayout() {
+                        NavigationHelper.navigateVideo(
+                            context = this@MainActivity,
+                            videoUrlOrId = it,
+                            timestamp = intent.getLongExtra(IntentData.timeStamp, 0L)
+                        )
 
-        val frag = PlayerFragment()
-        frag.arguments = bundle
-
-        supportFragmentManager.beginTransaction()
-            .remove(PlayerFragment())
-            .commit()
-        supportFragmentManager.beginTransaction()
-            .replace(R.id.container, frag)
-            .commitNow()
-        Handler(Looper.getMainLooper()).postDelayed({
-            supportFragmentManager.fragments.forEach { fragment ->
-                (fragment as? PlayerFragment)
-                    ?.binding?.playerMotionLayout?.apply {
-                        transitionToEnd()
-                        transitionToStart()
+                        binding.bottomNav.viewTreeObserver.removeOnGlobalLayoutListener(this)
                     }
+                })
+            } else {
+                NavigationHelper.navigateVideo(
+                    context = this@MainActivity,
+                    videoUrlOrId = it,
+                    timestamp = intent.getLongExtra(IntentData.timeStamp, 0L)
+                )
             }
-        }, 300)
-    }
 
-    private fun minimizePlayer() {
-        binding.mainMotionLayout.transitionToEnd()
-        supportFragmentManager.fragments.forEach { fragment ->
-            (fragment as? PlayerFragment)?.binding?.apply {
-                mainContainer.isClickable = false
-                linLayout.visibility = View.VISIBLE
-            }
-        }
-        supportFragmentManager.fragments.forEach { fragment ->
-            (fragment as? PlayerFragment)?.binding?.playerMotionLayout?.apply {
-                // set the animation duration
-                setTransitionDuration(250)
-                transitionToEnd()
-                getConstraintSet(R.id.start).constrainHeight(R.id.player, 0)
-                enableTransition(R.id.yt_transition, true)
-            }
+            return true
         }
 
-        val playerViewModel = ViewModelProvider(this)[PlayerViewModel::class.java]
-        playerViewModel.isFullscreen.value = false
-        requestedOrientation = if (autoRotationEnabled) {
-            ActivityInfo.SCREEN_ORIENTATION_USER
-        } else {
-            ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
-        }
+        return false
     }
 
     @SuppressLint("SwitchIntDef")
@@ -435,101 +535,121 @@ class MainActivity : BaseActivity() {
         super.onConfigurationChanged(newConfig)
 
         when (newConfig.orientation) {
-            Configuration.ORIENTATION_PORTRAIT -> unsetFullscreen()
-            Configuration.ORIENTATION_LANDSCAPE -> setFullscreen()
+            Configuration.ORIENTATION_PORTRAIT -> WindowHelper.toggleFullscreen(window, false)
+            Configuration.ORIENTATION_LANDSCAPE -> WindowHelper.toggleFullscreen(window, true)
         }
     }
 
-    fun setFullscreen() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            window.attributes.layoutInDisplayCutoutMode =
-                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.setDecorFitsSystemWindows(false)
-            window.insetsController?.apply {
-                hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
-                systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            }
-        } else {
-            @Suppress("DEPRECATION")
-            window.decorView.systemUiVisibility = (
-                View.SYSTEM_UI_FLAG_FULLSCREEN
-                    or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                    or View.SYSTEM_UI_FLAG_IMMERSIVE
-                    or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                    or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                    or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                )
-        }
-
-        window.setFlags(
-            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-        )
-    }
-
-    private fun unsetFullscreen() {
-        window.clearFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
-
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            @Suppress("DEPRECATION")
-            window.clearFlags(
-                WindowManager.LayoutParams.FLAG_FULLSCREEN
-            )
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            window.attributes.layoutInDisplayCutoutMode =
-                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.setDecorFitsSystemWindows(true)
-            window.insetsController?.apply {
-                show(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    systemBarsBehavior = WindowInsetsController.BEHAVIOR_DEFAULT
-                }
-            }
-        } else {
-            @Suppress("DEPRECATION")
-            window.decorView.systemUiVisibility =
-                (View.SYSTEM_UI_FLAG_VISIBLE or View.SYSTEM_UI_FLAG_LAYOUT_STABLE)
-        }
-    }
-
-    private fun navigateToBottomSelectedItem(item: MenuItem) {
-        // clear backstack if it's the start fragment
-        if (startFragmentId == item.itemId) navController.backQueue.clear()
-
+    private fun navigateToBottomSelectedItem(item: MenuItem): Boolean {
         if (item.itemId == R.id.subscriptionsFragment) {
             binding.bottomNav.removeBadge(R.id.subscriptionsFragment)
         }
 
-        // navigate to the selected fragment, if the fragment already
-        // exists in backstack then pop up to that entry
-        if (!navController.popBackStack(item.itemId, false)) {
-            navController.navigate(item.itemId)
-        }
-
         // Remove focus from search view when navigating to bottom view.
-        // Call only after navigate to destination, so it can be used in
-        // onMenuItemActionCollapse for backstack management
-        removeSearchFocus()
+        searchItem.collapseActionView()
+
+        return item.onNavDestinationSelected(navController)
     }
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        supportFragmentManager.fragments.forEach { fragment ->
-            (fragment as? PlayerFragment)?.onUserLeaveHint()
+
+        runOnPlayerFragment {
+            onUserLeaveHint()
+            true
         }
     }
 
-    override fun onNewIntent(intent: Intent?) {
+    override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         this.intent = intent
         loadIntentData()
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {
+        if (runOnPlayerFragment { onKeyUp(keyCode) }) {
+            return true
+        }
+
+        return super.onKeyUp(keyCode, event)
+    }
+
+    /**
+     * Attempt to run code on the player fragment if running
+     * Returns true if a running player fragment was found and the action got consumed, else false
+     */
+    fun runOnPlayerFragment(action: PlayerFragment.() -> Boolean): Boolean {
+        return supportFragmentManager.fragments.filterIsInstance<PlayerFragment>()
+            .firstOrNull()
+            ?.let(action)
+            ?: false
+    }
+
+    fun runOnAudioPlayerFragment(action: AudioPlayerFragment.() -> Boolean): Boolean {
+        return supportFragmentManager.fragments.filterIsInstance<AudioPlayerFragment>()
+            .firstOrNull()
+            ?.let(action)
+            ?: false
+    }
+
+    fun startPlaylistExport(playlistId: String, playlistName: String, format: ImportFormat) {
+        playlistExportFormat = format
+        exportPlaylistId = playlistId
+        createPlaylistsFile.launch("${playlistName}.${format.fileExtension}")
+    }
+
+    private fun showUserInfoDialogIfNeeded() {
+        // don't show the update information dialog for debug builds
+        if (BuildConfig.DEBUG) return
+
+        val lastShownVersionCode =
+            PreferenceHelper.getInt(PreferenceKeys.LAST_SHOWN_INFO_MESSAGE_VERSION_CODE, -1)
+
+        // mapping of version code to info message
+        val infoMessages = listOf(
+            59 to getUpdateInfoText(this)
+        )
+
+        val message =
+            infoMessages.lastOrNull { (versionCode, _) -> versionCode > lastShownVersionCode }?.second
+                ?: return
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.update_information)
+            .setMessage(message)
+            .setNegativeButton(R.string.okay, null)
+            .setPositiveButton(R.string.never_show_again) { _, _ ->
+                PreferenceHelper.putInt(
+                    PreferenceKeys.LAST_SHOWN_INFO_MESSAGE_VERSION_CODE,
+                    BuildConfig.VERSION_CODE
+                )
+            }
+            .show()
+    }
+
+    private fun getUpdateInfoText(context: Context) = buildSpannedString {
+        append("Most public Piped instances are not able to load any videos as of today because they're rate-limited very quickly by YouTube. Therefore please consider enabling ")
+        bold {
+            append(context.getString(R.string.local_stream_extraction))
+        }
+        append(" under ")
+        bold {
+            append("Settings -> Instance")
+        }
+        append(" in order to fetch video streams directly from YouTube without Piped in-between. Any other content will still be loaded via Piped.")
+
+        appendLine()
+        appendLine()
+
+        append("Due to the above mentioned issue, some instances do not properly generate the subscriptions feed. To fetch the feed directly from your phone, enable ")
+        bold {
+            append(context.getString(R.string.local_feed_extraction))
+        }
+        append(". Note that this might be slow if you have a lot of subscriptions.")
+
+        appendLine()
+        appendLine()
+
+        append("Please see the pinned issues at GitHub for more information on that topic.")
     }
 }

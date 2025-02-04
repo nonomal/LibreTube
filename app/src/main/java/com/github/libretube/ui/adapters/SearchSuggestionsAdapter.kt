@@ -2,36 +2,31 @@ package com.github.libretube.ui.adapters
 
 import android.view.LayoutInflater
 import android.view.ViewGroup
-import androidx.appcompat.widget.SearchView
-import androidx.recyclerview.widget.RecyclerView
-import com.github.libretube.databinding.SearchsuggestionRowBinding
-import com.github.libretube.ui.viewholders.SearchSuggestionsViewHolder
+import androidx.recyclerview.widget.ListAdapter
+import com.github.libretube.databinding.SuggestionRowBinding
+import com.github.libretube.ui.adapters.callbacks.DiffUtilItemCallback
+import com.github.libretube.ui.viewholders.SuggestionsViewHolder
 
 class SearchSuggestionsAdapter(
-    private var suggestionsList: List<String>,
-    private val searchView: SearchView
-) :
-    RecyclerView.Adapter<SearchSuggestionsViewHolder>() {
+    private val onRootClickListener: (String) -> Unit,
+    private val onArrowClickListener: (String) -> Unit,
+) : ListAdapter<String, SuggestionsViewHolder>(DiffUtilItemCallback()) {
 
-    override fun getItemCount(): Int {
-        return suggestionsList.size
-    }
-
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): SearchSuggestionsViewHolder {
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): SuggestionsViewHolder {
         val layoutInflater = LayoutInflater.from(parent.context)
-        val binding = SearchsuggestionRowBinding.inflate(layoutInflater, parent, false)
-        return SearchSuggestionsViewHolder(binding)
+        val binding = SuggestionRowBinding.inflate(layoutInflater, parent, false)
+        return SuggestionsViewHolder(binding)
     }
 
-    override fun onBindViewHolder(holder: SearchSuggestionsViewHolder, position: Int) {
-        val suggestion = suggestionsList[position]
+    override fun onBindViewHolder(holder: SuggestionsViewHolder, position: Int) {
+        val suggestion = getItem(holder.bindingAdapterPosition)
         holder.binding.apply {
             suggestionText.text = suggestion
             root.setOnClickListener {
-                searchView.setQuery(suggestion, true)
+                onRootClickListener(suggestion)
             }
             arrow.setOnClickListener {
-                searchView.setQuery(suggestion, false)
+                onArrowClickListener(suggestion)
             }
         }
     }

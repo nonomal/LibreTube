@@ -1,139 +1,194 @@
 package com.github.libretube.ui.sheets
 
 import android.os.Bundle
-import android.text.InputType
-import android.widget.Toast
+import androidx.core.os.bundleOf
 import com.github.libretube.R
 import com.github.libretube.api.PlaylistsHelper
 import com.github.libretube.api.RetrofitInstance
-import com.github.libretube.api.obj.PlaylistId
-import com.github.libretube.databinding.DialogTextPreferenceBinding
+import com.github.libretube.constants.IntentData
+import com.github.libretube.db.DatabaseHolder
+import com.github.libretube.enums.ImportFormat
 import com.github.libretube.enums.PlaylistType
 import com.github.libretube.enums.ShareObjectType
+import com.github.libretube.extensions.serializable
 import com.github.libretube.extensions.toID
-import com.github.libretube.extensions.toastFromMainThread
+import com.github.libretube.extensions.toastFromMainDispatcher
+import com.github.libretube.helpers.BackgroundHelper
+import com.github.libretube.helpers.ContextHelper
+import com.github.libretube.helpers.DownloadHelper
 import com.github.libretube.obj.ShareData
+import com.github.libretube.ui.activities.MainActivity
+import com.github.libretube.ui.base.BaseActivity
 import com.github.libretube.ui.dialogs.DeletePlaylistDialog
+import com.github.libretube.ui.dialogs.PlaylistDescriptionDialog
+import com.github.libretube.ui.dialogs.RenamePlaylistDialog
 import com.github.libretube.ui.dialogs.ShareDialog
-import com.github.libretube.util.BackgroundHelper
-import com.github.libretube.util.PreferenceHelper
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import kotlinx.coroutines.CoroutineScope
+import com.github.libretube.ui.preferences.BackupRestoreSettings
+import com.github.libretube.util.PlayingQueue
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import retrofit2.HttpException
-import java.io.IOException
+import kotlinx.coroutines.withContext
 
-class PlaylistOptionsBottomSheet(
-    private val playlistId: String,
-    playlistName: String,
-    private val playlistType: PlaylistType
-) : BaseBottomSheet() {
-    private val shareData = ShareData(currentPlaylist = playlistName)
+class PlaylistOptionsBottomSheet : BaseBottomSheet() {
+    private lateinit var playlistName: String
+    private lateinit var playlistId: String
+    private lateinit var playlistType: PlaylistType
+
+    private var exportFormat: ImportFormat = ImportFormat.NEWPIPE
+
     override fun onCreate(savedInstanceState: Bundle?) {
-        // options for the dialog
-        val optionsList = mutableListOf(
-            context?.getString(R.string.playOnBackground)!!
-        )
+        super.onCreate(savedInstanceState)
 
-        if (playlistType == PlaylistType.PUBLIC) {
-            optionsList.add(context?.getString(R.string.share)!!)
-            optionsList.add(context?.getString(R.string.clonePlaylist)!!)
-        } else {
-            optionsList.add(context?.getString(R.string.renamePlaylist)!!)
-            optionsList.add(context?.getString(R.string.deletePlaylist)!!)
+        arguments?.let {
+            playlistName = it.getString(IntentData.playlistName)!!
+            playlistId = it.getString(IntentData.playlistId)!!
+            playlistType = it.serializable(IntentData.playlistType)!!
         }
 
-        setSimpleItems(optionsList) { which ->
+        setTitle(playlistName)
+
+        // options for the dialog
+        val optionsList = mutableListOf(R.string.playOnBackground, R.string.download)
+
+        if (PlayingQueue.isNotEmpty()) optionsList.add(R.string.add_to_queue)
+
+        val isBookmarked = runBlocking(Dispatchers.IO) {
+            DatabaseHolder.Database.playlistBookmarkDao().includes(playlistId)
+        }
+
+        if (playlistType == PlaylistType.PUBLIC) {
+            optionsList.add(R.string.share)
+            optionsList.add(R.string.clonePlaylist)
+
+            // only add the bookmark option to the playlist if public
+            optionsList.add(
+                if (isBookmarked) R.string.remove_bookmark else R.string.add_to_bookmarks
+            )
+        } else {
+            optionsList.add(R.string.export_playlist)
+            optionsList.add(R.string.renamePlaylist)
+            optionsList.add(R.string.change_playlist_description)
+            optionsList.add(R.string.deletePlaylist)
+        }
+
+        setSimpleItems(optionsList.map { getString(it) }) { which ->
+            val mFragmentManager = (context as BaseActivity).supportFragmentManager
+
             when (optionsList[which]) {
                 // play the playlist in the background
-                context?.getString(R.string.playOnBackground) -> {
-                    runBlocking {
-                        val playlist =
-                            if (playlistType == PlaylistType.PRIVATE) {
-                                RetrofitInstance.authApi.getPlaylist(playlistId)
-                            } else {
-                                RetrofitInstance.api.getPlaylist(playlistId)
-                            }
+                R.string.playOnBackground -> {
+                    val playlist = withContext(Dispatchers.IO) {
+                        runCatching { PlaylistsHelper.getPlaylist(playlistId) }
+                    }.getOrElse {
+                        context?.toastFromMainDispatcher(R.string.error)
+                        return@setSimpleItems
+                    }
+
+                    playlist.relatedStreams.firstOrNull()?.let {
                         BackgroundHelper.playOnBackground(
-                            context = requireContext(),
-                            videoId = playlist.relatedStreams!![0].url!!.toID(),
+                            requireContext(),
+                            it.url!!.toID(),
                             playlistId = playlistId
                         )
                     }
                 }
+
+                R.string.add_to_queue -> {
+                    PlayingQueue.insertPlaylist(playlistId, null)
+                }
                 // Clone the playlist to the users Piped account
-                context?.getString(R.string.clonePlaylist) -> {
-                    val token = PreferenceHelper.getToken()
-                    if (token != "") {
-                        importPlaylist(token, playlistId)
-                    } else {
-                        Toast.makeText(
-                            context,
-                            R.string.login_first,
-                            Toast.LENGTH_SHORT
-                        ).show()
+                R.string.clonePlaylist -> {
+                    val context = requireContext()
+                    val playlistId = withContext(Dispatchers.IO) {
+                        runCatching {
+                            PlaylistsHelper.clonePlaylist(playlistId)
+                        }.getOrNull()
                     }
+                    context.toastFromMainDispatcher(
+                        if (playlistId != null) R.string.playlistCloned else R.string.server_error
+                    )
                 }
                 // share the playlist
-                context?.getString(R.string.share) -> {
-                    val shareDialog = ShareDialog(playlistId, ShareObjectType.PLAYLIST, shareData)
+                R.string.share -> {
+                    val newShareDialog = ShareDialog()
+                    newShareDialog.arguments = bundleOf(
+                        IntentData.id to playlistId,
+                        IntentData.shareObjectType to ShareObjectType.PLAYLIST,
+                        IntentData.shareData to ShareData(currentPlaylist = playlistName)
+                    )
                     // using parentFragmentManager, childFragmentManager doesn't work here
-                    shareDialog.show(parentFragmentManager, ShareDialog::class.java.name)
+                    newShareDialog.show(parentFragmentManager, ShareDialog::class.java.name)
                 }
-                context?.getString(R.string.deletePlaylist) -> {
-                    DeletePlaylistDialog(playlistId, playlistType)
-                        .show(parentFragmentManager, null)
-                }
-                context?.getString(R.string.renamePlaylist) -> {
-                    val binding = DialogTextPreferenceBinding.inflate(layoutInflater)
-                    binding.input.hint = context?.getString(R.string.playlistName)
-                    binding.input.inputType = InputType.TYPE_CLASS_TEXT
 
-                    MaterialAlertDialogBuilder(requireContext())
-                        .setTitle(R.string.renamePlaylist)
-                        .setView(binding.root)
-                        .setPositiveButton(R.string.okay) { _, _ ->
-                            if (binding.input.text.toString() == "") {
-                                Toast.makeText(
-                                    context,
-                                    R.string.emptyPlaylistName,
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                                return@setPositiveButton
-                            }
-                            CoroutineScope(Dispatchers.IO).launch {
-                                try {
-                                    PlaylistsHelper.renamePlaylist(playlistId, binding.input.text.toString())
-                                } catch (e: Exception) {
-                                    return@launch
-                                }
-                            }
+                R.string.deletePlaylist -> {
+                    val newDeletePlaylistDialog = DeletePlaylistDialog()
+                    newDeletePlaylistDialog.arguments = bundleOf(
+                        IntentData.playlistId to playlistId
+                    )
+                    newDeletePlaylistDialog.show(mFragmentManager, null)
+                }
+
+                R.string.renamePlaylist -> {
+                    val newRenamePlaylistDialog = RenamePlaylistDialog()
+                    newRenamePlaylistDialog.arguments = bundleOf(
+                        IntentData.playlistId to playlistId,
+                        IntentData.playlistName to playlistName
+                    )
+                    newRenamePlaylistDialog.show(mFragmentManager, null)
+                }
+
+                R.string.change_playlist_description -> {
+                    val newPlaylistDescriptionDialog = PlaylistDescriptionDialog()
+                    newPlaylistDescriptionDialog.arguments = bundleOf(
+                        IntentData.playlistId to playlistId,
+                        IntentData.playlistDescription to ""
+                    )
+                    newPlaylistDescriptionDialog.show(mFragmentManager, null)
+                }
+
+                R.string.download -> {
+                    DownloadHelper.startDownloadPlaylistDialog(
+                        requireContext(),
+                        mFragmentManager,
+                        playlistId,
+                        playlistName,
+                        playlistType
+                    )
+                }
+
+                R.string.export_playlist -> {
+                    val context = requireContext()
+
+                    BackupRestoreSettings.createImportFormatDialog(
+                        context,
+                        R.string.export_playlist,
+                        BackupRestoreSettings.exportPlaylistFormatList + listOf(ImportFormat.URLSORIDS)
+                    ) {
+                        exportFormat = it
+                        ContextHelper.unwrapActivity<MainActivity>(context)
+                            .startPlaylistExport(playlistId, playlistName, exportFormat)
+                    }
+                }
+
+                else -> {
+                    withContext(Dispatchers.IO) {
+                        if (isBookmarked) {
+                            DatabaseHolder.Database.playlistBookmarkDao().deleteById(playlistId)
+                        } else {
+                            val bookmark = try {
+                                RetrofitInstance.api.getPlaylist(playlistId)
+                            } catch (e: Exception) {
+                                return@withContext
+                            }.toPlaylistBookmark(playlistId)
+                            DatabaseHolder.Database.playlistBookmarkDao().insert(bookmark)
                         }
-                        .setNegativeButton(R.string.cancel, null)
-                        .show()
+                    }
                 }
             }
         }
-        super.onCreate(savedInstanceState)
     }
 
-    private fun importPlaylist(token: String, playlistId: String) {
-        val appContext = context?.applicationContext
-        CoroutineScope(Dispatchers.IO).launch {
-            val response = try {
-                RetrofitInstance.authApi.importPlaylist(
-                    token,
-                    PlaylistId(playlistId)
-                )
-            } catch (e: IOException) {
-                println(e)
-                return@launch
-            } catch (e: HttpException) {
-                return@launch
-            }
-            appContext?.toastFromMainThread(if (response.playlistId != null) R.string.playlistCloned else R.string.server_error)
-        }
+    companion object {
+        const val PLAYLIST_OPTIONS_REQUEST_KEY = "playlist_options_request_key"
     }
 }

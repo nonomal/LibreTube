@@ -6,90 +6,200 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.core.os.bundleOf
+import androidx.core.view.isGone
+import androidx.core.view.isVisible
+import androidx.core.view.updatePadding
 import androidx.recyclerview.widget.RecyclerView
+import com.github.libretube.R
 import com.github.libretube.api.PlaylistsHelper
 import com.github.libretube.api.obj.StreamItem
-import com.github.libretube.databinding.PlaylistRowBinding
+import com.github.libretube.constants.IntentData
+import com.github.libretube.databinding.VideoRowBinding
+import com.github.libretube.db.DatabaseHolder
 import com.github.libretube.enums.PlaylistType
 import com.github.libretube.extensions.TAG
+import com.github.libretube.extensions.dpToPx
 import com.github.libretube.extensions.toID
+import com.github.libretube.extensions.toastFromMainDispatcher
+import com.github.libretube.helpers.ImageHelper
+import com.github.libretube.helpers.NavigationHelper
 import com.github.libretube.ui.base.BaseActivity
 import com.github.libretube.ui.extensions.setFormattedDuration
 import com.github.libretube.ui.extensions.setWatchProgressLength
 import com.github.libretube.ui.sheets.VideoOptionsBottomSheet
+import com.github.libretube.ui.sheets.VideoOptionsBottomSheet.Companion.VIDEO_OPTIONS_SHEET_REQUEST_KEY
 import com.github.libretube.ui.viewholders.PlaylistViewHolder
-import com.github.libretube.util.ImageHelper
-import com.github.libretube.util.NavigationHelper
+import com.github.libretube.util.TextUtils
+import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import java.io.IOException
+import kotlinx.coroutines.withContext
 
+/**
+ * @param originalFeed original, unsorted feed, needed in order to delete the proper video from
+ * playlists
+ */
 class PlaylistAdapter(
-    private val videoFeed: MutableList<StreamItem>,
+    val originalFeed: MutableList<StreamItem>,
+    private val sortedFeed: MutableList<StreamItem>,
     private val playlistId: String,
     private val playlistType: PlaylistType
 ) : RecyclerView.Adapter<PlaylistViewHolder>() {
 
+    private var visibleCount = minOf(20, sortedFeed.size)
+
     override fun getItemCount(): Int {
-        return videoFeed.size
+        return when (playlistType) {
+            PlaylistType.PUBLIC -> sortedFeed.size
+            else -> minOf(visibleCount, sortedFeed.size)
+        }
     }
 
     fun updateItems(newItems: List<StreamItem>) {
-        val oldSize = videoFeed.size
-        videoFeed.addAll(newItems)
-        notifyItemRangeInserted(oldSize, videoFeed.size)
+        val oldSize = sortedFeed.size
+        sortedFeed.addAll(newItems)
+        notifyItemRangeInserted(oldSize, sortedFeed.size)
+    }
+
+    fun showMoreItems() {
+        val oldSize = visibleCount
+        visibleCount += minOf(10, sortedFeed.size - oldSize)
+        if (visibleCount == oldSize) return
+        notifyItemRangeInserted(oldSize, visibleCount)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PlaylistViewHolder {
         val layoutInflater = LayoutInflater.from(parent.context)
-        val binding = PlaylistRowBinding.inflate(layoutInflater, parent, false)
+        val binding = VideoRowBinding.inflate(layoutInflater, parent, false)
         return PlaylistViewHolder(binding)
     }
 
     override fun onBindViewHolder(holder: PlaylistViewHolder, position: Int) {
-        val streamItem = videoFeed[position]
+        val streamItem = sortedFeed[position]
+        val videoId = streamItem.url!!.toID()
+
         holder.binding.apply {
-            playlistTitle.text = streamItem.title
-            playlistDescription.text = streamItem.uploaderName
-            thumbnailDuration.setFormattedDuration(streamItem.duration!!)
-            ImageHelper.loadImage(streamItem.thumbnail, playlistThumbnail)
+            videoTitle.text = streamItem.title
+            videoInfo.text = TextUtils.formatViewsString(root.context, streamItem.views ?: -1, streamItem.uploaded, streamItem.uploaderName)
+            videoInfo.maxLines = 2
+
+            // piped does not load channel avatars for playlist views
+            channelContainer.isGone = true
+
+            ImageHelper.loadImage(streamItem.thumbnail, thumbnail)
+            thumbnailDuration.setFormattedDuration(streamItem.duration ?: -1, streamItem.isShort, streamItem.uploaded)
+
             root.setOnClickListener {
                 NavigationHelper.navigateVideo(root.context, streamItem.url, playlistId)
             }
-            val videoId = streamItem.url!!.toID()
-            val videoName = streamItem.title!!
+
+            val activity = (root.context as BaseActivity)
+            val fragmentManager = activity.supportFragmentManager
             root.setOnLongClickListener {
-                VideoOptionsBottomSheet(videoId, videoName)
-                    .show(
-                        (root.context as BaseActivity).supportFragmentManager,
-                        VideoOptionsBottomSheet::class.java.name
-                    )
+                fragmentManager.setFragmentResultListener(
+                    VIDEO_OPTIONS_SHEET_REQUEST_KEY,
+                    activity
+                ) { _, _ ->
+                    notifyItemChanged(position)
+                }
+                val sheet = VideoOptionsBottomSheet()
+                sheet.arguments = bundleOf(IntentData.streamItem to streamItem)
+                sheet.show(fragmentManager, VideoOptionsBottomSheet::class.java.name)
                 true
             }
 
-            if (playlistType != PlaylistType.PUBLIC) {
-                deletePlaylist.visibility = View.VISIBLE
-                deletePlaylist.setOnClickListener {
-                    removeFromPlaylist(root.context, position)
+            if (!streamItem.uploaderUrl.isNullOrBlank()) {
+                videoInfo.setOnClickListener {
+                    NavigationHelper.navigateChannel(root.context, streamItem.uploaderUrl)
+                }
+                // add some extra padding to make it easier to click
+                val extraPadding = 3f.dpToPx()
+                videoInfo.updatePadding(top = extraPadding, bottom = extraPadding)
+            }
+
+            streamItem.duration?.let { watchProgress.setWatchProgressLength(videoId, it) }
+
+            CoroutineScope(Dispatchers.IO).launch {
+                val isDownloaded =
+                    DatabaseHolder.Database.downloadDao().exists(videoId)
+
+                withContext(Dispatchers.Main) {
+                    downloadBadge.isVisible = isDownloaded
                 }
             }
-            watchProgress.setWatchProgressLength(videoId, streamItem.duration!!)
         }
     }
 
-    fun removeFromPlaylist(context: Context, position: Int) {
-        videoFeed.removeAt(position)
-        (context as Activity).runOnUiThread {
-            notifyItemRemoved(position)
-            notifyItemRangeChanged(position, itemCount)
+    fun removeFromPlaylist(rootView: View, sortedFeedPosition: Int) {
+        val video = sortedFeed[sortedFeedPosition]
+
+        // get the index of the video in the playlist
+        // could vary due to playlist sorting by the user
+        val originalPlaylistPosition = originalFeed
+            .indexOfFirst { it.url == video.url }
+            .takeIf { it >= 0 } ?: return
+
+        sortedFeed.removeAt(sortedFeedPosition)
+        originalFeed.removeAt(originalPlaylistPosition)
+        visibleCount--
+
+        (rootView.context as Activity).runOnUiThread {
+            notifyItemRemoved(sortedFeedPosition)
+            notifyItemRangeChanged(sortedFeedPosition, itemCount)
         }
+        val appContext = rootView.context.applicationContext
+
+        // try to remove the video from the playlist and show an undo snackbar if successful
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    PlaylistsHelper.removeFromPlaylist(playlistId, originalPlaylistPosition)
+                }
+
+                val shortTitle = TextUtils.limitTextToLength(video.title.orEmpty(), 50)
+                val snackBarText = rootView.context.getString(
+                    R.string.successfully_removed_from_playlist,
+                    shortTitle
+                )
+                Snackbar.make(rootView, snackBarText, Snackbar.LENGTH_LONG)
+                    .setTextMaxLines(3)
+                    .setAction(R.string.undo) {
+                        reAddToPlaylist(
+                            appContext,
+                            video,
+                            sortedFeedPosition,
+                            originalPlaylistPosition
+                        )
+                    }
+                    .show()
+            } catch (e: Exception) {
+                Log.e(TAG(), e.toString())
+                appContext.toastFromMainDispatcher(R.string.unknown_error)
+            }
+        }
+    }
+
+    private fun reAddToPlaylist(
+        context: Context,
+        streamItem: StreamItem,
+        sortedFeedPosition: Int,
+        originalPlaylistPosition: Int
+    ) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                PlaylistsHelper.removeFromPlaylist(playlistId, position)
-            } catch (e: IOException) {
+                PlaylistsHelper.addToPlaylist(playlistId, streamItem)
+                sortedFeed.add(sortedFeedPosition, streamItem)
+                originalFeed.add(originalPlaylistPosition, streamItem)
+                visibleCount++
+
+                withContext(Dispatchers.Main) {
+                    notifyItemInserted(sortedFeedPosition)
+                }
+            } catch (e: Exception) {
                 Log.e(TAG(), e.toString())
-                return@launch
+                context.toastFromMainDispatcher(R.string.unknown_error)
             }
         }
     }
