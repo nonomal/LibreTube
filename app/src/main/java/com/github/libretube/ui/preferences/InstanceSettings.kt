@@ -1,210 +1,225 @@
 package com.github.libretube.ui.preferences
 
-import android.net.Uri
 import android.os.Bundle
+import android.view.LayoutInflater
 import android.widget.Toast
-import androidx.activity.result.ActivityResultLauncher
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.result.contract.ActivityResultContracts.CreateDocument
-import androidx.fragment.app.Fragment
+import androidx.core.app.ActivityCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.SwitchPreferenceCompat
+import androidx.recyclerview.widget.LinearLayoutManager
 import com.github.libretube.R
+import com.github.libretube.api.InstanceRepository
 import com.github.libretube.api.RetrofitInstance
+import com.github.libretube.api.obj.PipedInstance
+import com.github.libretube.constants.IntentData
 import com.github.libretube.constants.PreferenceKeys
-import com.github.libretube.db.DatabaseHolder.Companion.Database
-import com.github.libretube.extensions.awaitQuery
-import com.github.libretube.ui.activities.SettingsActivity
+import com.github.libretube.databinding.SimpleOptionsRecyclerBinding
+import com.github.libretube.db.DatabaseHolder.Database
+import com.github.libretube.extensions.toastFromMainDispatcher
+import com.github.libretube.helpers.PreferenceHelper
+import com.github.libretube.ui.adapters.InstancesAdapter
 import com.github.libretube.ui.base.BasePreferenceFragment
 import com.github.libretube.ui.dialogs.CustomInstanceDialog
 import com.github.libretube.ui.dialogs.DeleteAccountDialog
 import com.github.libretube.ui.dialogs.LoginDialog
 import com.github.libretube.ui.dialogs.LogoutDialog
-import com.github.libretube.util.ImportHelper
-import com.github.libretube.util.PreferenceHelper
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.common.collect.ImmutableList
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrl
 
 class InstanceSettings : BasePreferenceFragment() {
-
-    /**
-     * result listeners for importing and exporting subscriptions
-     */
-    private lateinit var getContent: ActivityResultLauncher<String>
-    private lateinit var createFile: ActivityResultLauncher<String>
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        getContent =
-            registerForActivityResult(
-                ActivityResultContracts.GetContent()
-            ) { uri: Uri? ->
-                ImportHelper(requireActivity()).importSubscriptions(uri)
-            }
-        createFile = registerForActivityResult(
-            CreateDocument("application/json")
-        ) { uri: Uri? ->
-            ImportHelper(requireActivity()).exportSubscriptions(uri)
-        }
-
-        super.onCreate(savedInstanceState)
-    }
+    override val titleResourceId: Int = R.string.instance
+    private val token get() = PreferenceHelper.getToken()
+    private var instances = mutableListOf<PipedInstance>()
+    private val authInstanceToggle get() = findPreference<SwitchPreferenceCompat>(
+        PreferenceKeys.AUTH_INSTANCE_TOGGLE
+    )!!
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         setPreferencesFromResource(R.xml.instance_settings, rootKey)
 
-        val settingsActivity = activity as? SettingsActivity
-        settingsActivity?.changeTopBarText(getString(R.string.instance))
+        val instancePref = findPreference<ListPreference>(PreferenceKeys.FETCH_INSTANCE)!!
+        val authInstanceToggle = findPreference<SwitchPreferenceCompat>(
+            PreferenceKeys.AUTH_INSTANCE_TOGGLE
+        )!!
+        val authInstance = findPreference<ListPreference>(PreferenceKeys.AUTH_INSTANCE)!!
+        val instancePrefs = listOf(instancePref, authInstance)
+        val appContext = requireContext().applicationContext
 
-        val instance = findPreference<ListPreference>(PreferenceKeys.FETCH_INSTANCE)
-        // fetchInstance()
-        initCustomInstances(instance!!)
-        instance.setOnPreferenceChangeListener { _, newValue ->
-            RetrofitInstance.url = newValue.toString()
-            if (!PreferenceHelper.getBoolean(PreferenceKeys.AUTH_INSTANCE_TOGGLE, false)) {
-                RetrofitInstance.authUrl = newValue.toString()
-                logout()
-            }
+        lifecycleScope.launch {
+            // update the instances to also show custom ones
+            initInstancesPref(instancePrefs, InstanceRepository(appContext).getInstancesFallback())
+
+            // try to fetch the public list of instances async
+            val instanceRepo = InstanceRepository(appContext)
+            val instances = instanceRepo.getInstances()
+                .onFailure {
+                    appContext.toastFromMainDispatcher(it.message.orEmpty())
+                }
+            initInstancesPref(
+                instancePrefs,
+                instances.getOrDefault(instanceRepo.getInstancesFallback())
+            )
+        }
+
+        authInstance.setOnPreferenceChangeListener { _, _ ->
             RetrofitInstance.lazyMgr.reset()
-            activity?.recreate()
+            logoutAndUpdateUI()
             true
         }
 
-        val authInstance = findPreference<ListPreference>(PreferenceKeys.AUTH_INSTANCE)
-        initCustomInstances(authInstance!!)
-        // hide auth instance if option deselected
-        if (!PreferenceHelper.getBoolean(PreferenceKeys.AUTH_INSTANCE_TOGGLE, false)) {
-            authInstance.isVisible = false
-        }
-        authInstance.setOnPreferenceChangeListener { _, newValue ->
-            // save new auth url
-            RetrofitInstance.authUrl = newValue.toString()
+        authInstanceToggle.setOnPreferenceChangeListener { _, _ ->
             RetrofitInstance.lazyMgr.reset()
-            logout()
-            activity?.recreate()
-            true
-        }
-
-        val authInstanceToggle =
-            findPreference<SwitchPreferenceCompat>(PreferenceKeys.AUTH_INSTANCE_TOGGLE)
-        authInstanceToggle?.setOnPreferenceChangeListener { _, newValue ->
-            authInstance.isVisible = newValue == true
-            logout()
-            // either use new auth url or the normal api url if auth instance disabled
-            RetrofitInstance.authUrl = if (newValue == false) {
-                RetrofitInstance.url
-            } else {
-                authInstance.value
-            }
-            RetrofitInstance.lazyMgr.reset()
-            activity?.recreate()
+            logoutAndUpdateUI()
             true
         }
 
         val customInstance = findPreference<Preference>(PreferenceKeys.CUSTOM_INSTANCE)
         customInstance?.setOnPreferenceClickListener {
-            val newFragment = CustomInstanceDialog()
-            newFragment.show(childFragmentManager, CustomInstanceDialog::class.java.name)
+            CustomInstanceDialog()
+                .show(childFragmentManager, CustomInstanceDialog::class.java.name)
             true
         }
 
         val clearCustomInstances = findPreference<Preference>(PreferenceKeys.CLEAR_CUSTOM_INSTANCES)
         clearCustomInstances?.setOnPreferenceClickListener {
-            awaitQuery {
+            lifecycleScope.launch {
                 Database.customInstanceDao().deleteAll()
+                ActivityCompat.recreate(requireActivity())
             }
-            activity?.recreate()
             true
         }
 
         val login = findPreference<Preference>(PreferenceKeys.LOGIN_REGISTER)
-        val token = PreferenceHelper.getToken()
-        if (token != "") login?.setTitle(R.string.logout)
-        login?.setOnPreferenceClickListener {
-            if (token == "") {
-                val newFragment = LoginDialog()
-                newFragment.show(childFragmentManager, LoginDialog::class.java.name)
-            } else {
-                val newFragment = LogoutDialog()
-                newFragment.show(childFragmentManager, LogoutDialog::class.java.name)
-            }
-
-            true
-        }
-
+        val logout = findPreference<Preference>(PreferenceKeys.LOGOUT)
         val deleteAccount = findPreference<Preference>(PreferenceKeys.DELETE_ACCOUNT)
-        deleteAccount?.isEnabled = PreferenceHelper.getToken() != ""
+
+        login?.isVisible = token.isEmpty()
+        logout?.isVisible = token.isNotEmpty()
+        deleteAccount?.isEnabled = token.isNotEmpty()
+
+        childFragmentManager.setFragmentResultListener(
+            INSTANCE_DIALOG_REQUEST_KEY,
+            this
+        ) { _, resultBundle ->
+            val isLoggedIn = resultBundle.getBoolean(IntentData.loginTask)
+            val isLoggedOut = resultBundle.getBoolean(IntentData.logoutTask)
+            if (isLoggedIn) {
+                login?.isVisible = false
+                logout?.isVisible = true
+                deleteAccount?.isEnabled = true
+            } else if (isLoggedOut) {
+                logoutAndUpdateUI()
+            }
+        }
+
+        login?.setOnPreferenceClickListener {
+            LoginDialog().show(childFragmentManager, LoginDialog::class.java.name)
+            true
+        }
+
+        logout?.setOnPreferenceClickListener {
+            LogoutDialog().show(childFragmentManager, LogoutDialog::class.java.name)
+            true
+        }
+
         deleteAccount?.setOnPreferenceClickListener {
-            val newFragment = DeleteAccountDialog()
-            newFragment.show(childFragmentManager, DeleteAccountDialog::class.java.name)
-            true
-        }
-
-        val importSubscriptions = findPreference<Preference>(PreferenceKeys.IMPORT_SUBS)
-        importSubscriptions?.setOnPreferenceClickListener {
-            // check StorageAccess
-            getContent.launch("*/*")
-            true
-        }
-
-        val exportSubscriptions = findPreference<Preference>(PreferenceKeys.EXPORT_SUBS)
-        exportSubscriptions?.setOnPreferenceClickListener {
-            createFile.launch("subscriptions.json")
+            DeleteAccountDialog()
+                .show(childFragmentManager, DeleteAccountDialog::class.java.name)
             true
         }
     }
 
-    private fun initCustomInstances(instancePref: ListPreference) {
-        lifecycleScope.launchWhenCreated {
-            val customInstances = awaitQuery {
-                Database.customInstanceDao().getAll()
+    private suspend fun initInstancesPref(
+        instancePrefs: List<ListPreference>,
+        publicInstances: List<PipedInstance>
+    ) = runCatching {
+        val customInstances = withContext(Dispatchers.IO) {
+            Database.customInstanceDao().getAll()
+        }.map { PipedInstance(it.name, it.apiUrl) }
+
+        instances = publicInstances.plus(customInstances).toMutableList()
+
+        // add the currently used instances to the list if they're currently down / not part
+        // of the public instances list
+        for (apiUrl in listOf(RetrofitInstance.apiUrl, RetrofitInstance.authUrl)) {
+            if (instances.none { it.apiUrl == apiUrl }) {
+                val origin = apiUrl.toHttpUrl().host
+                instances.add(PipedInstance(origin, apiUrl, isCurrentlyDown = true))
             }
+        }
 
-            val instanceNames = arrayListOf<String>()
-            val instanceValues = arrayListOf<String>()
+        instances.sortBy { it.name }
 
-            // fetch official public instances
+        // If any preference dialog is visible in this fragment, it's one of the instance selection
+        // dialogs. In order to prevent UX issues, we don't update the instances list then.
+        if (isDialogVisible) return@runCatching
 
-            val response = try {
-                RetrofitInstance.externalApi.getInstances().toMutableList()
-            } catch (e: Exception) {
-                e.printStackTrace()
-                mutableListOf()
-            }
-
-            response.sortBy { it.name }
-
-            response.forEach {
-                if (it.name != null && it.api_url != null) {
-                    instanceNames += it.name!!
-                    instanceValues += it.api_url!!
+        for (instancePref in instancePrefs) {
+            // add custom instances to the list preference
+            instancePref.entries = instances.map { it.name }.toTypedArray()
+            instancePref.entryValues = instances.map { it.apiUrl }.toTypedArray()
+            instancePref.summaryProvider =
+                Preference.SummaryProvider<ListPreference> { preference ->
+                    preference.entry
                 }
-            }
-
-            customInstances.forEach { instance ->
-                instanceNames += instance.name
-                instanceValues += instance.apiUrl
-            }
-
-            runOnUiThread {
-                // add custom instances to the list preference
-                instancePref.entries = instanceNames.toTypedArray()
-                instancePref.entryValues = instanceValues.toTypedArray()
-                instancePref.summaryProvider =
-                    Preference.SummaryProvider<ListPreference> { preference ->
-                        preference.entry
-                    }
-            }
         }
     }
 
-    private fun logout() {
+    override fun onDisplayPreferenceDialog(preference: Preference) {
+        if (preference.key in arrayOf(PreferenceKeys.FETCH_INSTANCE, PreferenceKeys.AUTH_INSTANCE)) {
+            showInstanceSelectionDialog(preference as ListPreference)
+        } else {
+            super.onDisplayPreferenceDialog(preference)
+        }
+    }
+
+    private fun showInstanceSelectionDialog(preference: ListPreference) {
+        var selectedInstance = preference.value
+        val selectedIndex = instances.indexOfFirst { it.apiUrl == selectedInstance }
+
+        val layoutInflater = LayoutInflater.from(context)
+        val binding = SimpleOptionsRecyclerBinding.inflate(layoutInflater)
+        binding.optionsRecycler.layoutManager = LinearLayoutManager(context)
+
+        val instances = ImmutableList.copyOf(this.instances)
+        binding.optionsRecycler.adapter = InstancesAdapter(selectedIndex) {
+            selectedInstance = instances[it].apiUrl
+        }.also { it.submitList(instances) }
+
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(preference.title)
+            .setView(binding.root)
+            .setPositiveButton(R.string.okay) { _, _ ->
+                preference.value = selectedInstance
+                resetForNewInstance()
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun logoutAndUpdateUI() {
         PreferenceHelper.setToken("")
         Toast.makeText(context, getString(R.string.loggedout), Toast.LENGTH_SHORT).show()
+        findPreference<Preference>(PreferenceKeys.LOGIN_REGISTER)?.isVisible = true
+        findPreference<Preference>(PreferenceKeys.LOGOUT)?.isVisible = false
+        findPreference<Preference>(PreferenceKeys.DELETE_ACCOUNT)?.isEnabled = false
     }
 
-    private fun Fragment?.runOnUiThread(action: () -> Unit) {
-        this ?: return
-        if (!isAdded) return // Fragment not attached to an Activity
-        activity?.runOnUiThread(action)
+    private fun resetForNewInstance() {
+        if (!authInstanceToggle.isChecked) {
+            logoutAndUpdateUI()
+        }
+        RetrofitInstance.lazyMgr.reset()
+        ActivityCompat.recreate(requireActivity())
+    }
+
+    companion object {
+        const val INSTANCE_DIALOG_REQUEST_KEY = "instance_dialog_request_key"
     }
 }

@@ -1,17 +1,17 @@
 package com.github.libretube.api.obj
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import kotlinx.serialization.Serializable
 
-@JsonIgnoreProperties(ignoreUnknown = true)
+@Serializable
 data class Channel(
-    var id: String? = null,
-    var name: String? = null,
-    var avatarUrl: String? = null,
-    var bannerUrl: String? = null,
-    var description: String? = null,
-    var nextpage: String? = null,
-    var subscriberCount: Long = 0,
-    var verified: Boolean = false,
-    var relatedStreams: List<StreamItem>? = listOf(),
-    var tabs: List<ChannelTab>? = listOf()
+    val id: String? = null,
+    val name: String? = null,
+    val avatarUrl: String? = null,
+    val bannerUrl: String? = null,
+    val description: String? = null,
+    val nextpage: String? = null,
+    val subscriberCount: Long = 0,
+    val verified: Boolean = false,
+    var relatedStreams: List<StreamItem> = emptyList(),
+    val tabs: List<ChannelTab> = emptyList()
 )

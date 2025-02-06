@@ -1,26 +1,43 @@
 package com.github.libretube.api.obj
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import kotlinx.serialization.Serializable
 
-@JsonIgnoreProperties(ignoreUnknown = true)
+@Serializable
 data class ContentItem(
-    var url: String? = null,
-    var thumbnail: String? = null,
-    var uploaderName: String? = null,
-    var uploaded: Long? = null,
-    var shortDescription: String? = null,
+    val url: String,
+    val type: String,
+    var thumbnail: String,
     // Video only attributes
     var title: String? = null,
-    var uploaderUrl: String? = null,
-    var uploaderAvatar: String? = null,
-    var uploadedDate: String? = null,
-    var duration: Long? = null,
-    var views: Long? = null,
-    var uploaderVerified: Boolean? = null,
+    val uploaderUrl: String? = null,
+    val uploaderAvatar: String? = null,
+    val duration: Long = -1,
+    val views: Long = -1,
+    val isShort: Boolean? = null,
+    val uploaderVerified: Boolean? = null,
+    val uploaderName: String? = null,
+    val uploaded: Long = 0,
+    val shortDescription: String? = null,
     // Channel and Playlist attributes
-    var name: String? = null,
-    var description: String? = null,
-    var subscribers: Long? = -1,
-    var videos: Long? = -1,
-    var verified: Boolean? = null
-)
+    val name: String? = null,
+    val description: String? = null,
+    val subscribers: Long = -1,
+    val videos: Long = -1,
+    val verified: Boolean? = null
+) {
+    fun toStreamItem() = StreamItem(
+        url = url,
+        type = StreamItem.TYPE_STREAM,
+        title = title,
+        thumbnail = thumbnail,
+        uploaderName = uploaderName,
+        uploaded = uploaded,
+        uploaderAvatar = uploaderAvatar,
+        uploaderUrl = uploaderUrl,
+        duration = duration,
+        uploaderVerified = uploaderVerified,
+        shortDescription = shortDescription,
+        views = views,
+        isShort = isShort == true
+    )
+}

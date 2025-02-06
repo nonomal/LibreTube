@@ -11,7 +11,23 @@
             app:key="notification_toggle"
             app:title="@string/notify_new_streams" />
 
+        <SwitchPreferenceCompat
+            android:dependency="notification_toggle"
+            android:icon="@drawable/ic_image"
+            app:defaultValue="false"
+            app:key="show_stream_thumbnails"
+            app:summary="@string/show_stream_thumbnails_summary"
+            app:title="@string/show_stream_thumbnails" />
+
+        <SwitchPreferenceCompat
+            android:dependency="notification_toggle"
+            android:icon="@drawable/ic_video"
+            app:defaultValue="false"
+            app:key="shorts_notifications"
+            app:title="@string/shorts_notifications" />
+
         <ListPreference
+            android:dependency="notification_toggle"
             android:icon="@drawable/ic_time"
             app:defaultValue="60"
             app:entries="@array/checkingFrequency"
@@ -21,6 +37,7 @@
             app:useSimpleSummaryProvider="true" />
 
         <ListPreference
+            android:dependency="notification_toggle"
             android:icon="@drawable/ic_signal"
             app:defaultValue="all"
             app:entries="@array/requiredNetwork"
@@ -34,16 +51,17 @@
     <PreferenceCategory app:title="@string/time">
 
         <SwitchPreferenceCompat
-            app:title="@string/notification_time"
             android:summary="@string/notification_time_summary"
             app:key="notification_time"
-            />
+            app:title="@string/notification_time" />
 
         <com.github.libretube.ui.views.TimePickerPreference
+            android:dependency="notification_time"
             app:key="notification_start_time"
             app:title="@string/start_time" />
 
         <com.github.libretube.ui.views.TimePickerPreference
+            android:dependency="notification_time"
             app:key="notification_end_time"
             app:title="@string/end_time" />
 

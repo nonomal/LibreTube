@@ -13,6 +13,10 @@
 
         <item name="snackbarStyle">@style/snackBarStyle</item>
 
+        <item name="android:windowSplashScreenAnimatedIcon" tools:targetApi="s">
+            @drawable/splash_anim
+        </item>
+
     </style>
 
     <style name="StartupTheme" parent="BaseTheme">
@@ -183,10 +187,107 @@
 
     </style>
 
+    <style name="Theme.Monochrome" parent="BaseTheme">
+
+        <item name="colorPrimary">@color/monochrome_theme_light_primary</item>
+        <item name="colorOnPrimary">@color/monochrome_theme_light_onPrimary</item>
+        <item name="colorPrimaryContainer">@color/monochrome_theme_light_primaryContainer</item>
+        <item name="colorOnPrimaryContainer">@color/monochrome_theme_light_onPrimaryContainer</item>
+        <item name="colorSecondary">@color/monochrome_theme_light_secondary</item>
+        <item name="colorOnSecondary">@color/monochrome_theme_light_onSecondary</item>
+        <item name="colorSecondaryContainer">@color/monochrome_theme_light_secondaryContainer</item>
+        <item name="colorOnSecondaryContainer">@color/monochrome_theme_light_onSecondaryContainer
+        </item>
+        <item name="colorTertiary">@color/monochrome_theme_light_tertiary</item>
+        <item name="colorOnTertiary">@color/monochrome_theme_light_onTertiary</item>
+        <item name="colorTertiaryContainer">@color/monochrome_theme_light_tertiaryContainer</item>
+        <item name="colorOnTertiaryContainer">@color/monochrome_theme_light_onTertiaryContainer
+        </item>
+        <item name="colorError">@color/monochrome_theme_light_error</item>
+        <item name="colorErrorContainer">@color/monochrome_theme_light_errorContainer</item>
+        <item name="colorOnError">@color/monochrome_theme_light_onError</item>
+        <item name="colorOnErrorContainer">@color/monochrome_theme_light_onErrorContainer</item>
+        <item name="android:colorBackground">@color/monochrome_theme_light_background</item>
+        <item name="colorOnBackground">@color/monochrome_theme_light_onBackground</item>
+        <item name="colorSurface">@color/monochrome_theme_light_surface</item>
+        <item name="colorOnSurface">@color/monochrome_theme_light_onSurface</item>
+        <item name="colorSurfaceVariant">@color/monochrome_theme_light_surfaceVariant</item>
+        <item name="colorOnSurfaceVariant">@color/monochrome_theme_light_onSurfaceVariant</item>
+        <item name="colorOutline">@color/monochrome_theme_light_outline</item>
+        <item name="colorOnSurfaceInverse">@color/monochrome_theme_light_inverseOnSurface</item>
+        <item name="colorSurfaceInverse">@color/monochrome_theme_light_inverseSurface</item>
+        <item name="colorPrimaryInverse">@color/monochrome_theme_light_inversePrimary</item>
+
+    </style>
+
+    <style name="Theme.Violet" parent="BaseTheme">
+
+        <item name="colorPrimary">@color/violet_theme_light_primary</item>
+        <item name="colorOnPrimary">@color/violet_theme_light_onPrimary</item>
+        <item name="colorPrimaryContainer">@color/violet_theme_light_primaryContainer</item>
+        <item name="colorOnPrimaryContainer">@color/violet_theme_light_onPrimaryContainer</item>
+        <item name="colorSecondary">@color/violet_theme_light_secondary</item>
+        <item name="colorOnSecondary">@color/violet_theme_light_onSecondary</item>
+        <item name="colorSecondaryContainer">@color/violet_theme_light_secondaryContainer</item>
+        <item name="colorOnSecondaryContainer">@color/violet_theme_light_onSecondaryContainer
+        </item>
+        <item name="colorTertiary">@color/violet_theme_light_tertiary</item>
+        <item name="colorOnTertiary">@color/violet_theme_light_onTertiary</item>
+        <item name="colorTertiaryContainer">@color/violet_theme_light_tertiaryContainer</item>
+        <item name="colorOnTertiaryContainer">@color/violet_theme_light_onTertiaryContainer
+        </item>
+        <item name="colorError">@color/violet_theme_light_error</item>
+        <item name="colorErrorContainer">@color/violet_theme_light_errorContainer</item>
+        <item name="colorOnError">@color/violet_theme_light_onError</item>
+        <item name="colorOnErrorContainer">@color/violet_theme_light_onErrorContainer</item>
+        <item name="android:colorBackground">@color/violet_theme_light_background</item>
+        <item name="colorOnBackground">@color/violet_theme_light_onBackground</item>
+        <item name="colorSurface">@color/violet_theme_light_surface</item>
+        <item name="colorOnSurface">@color/violet_theme_light_onSurface</item>
+        <item name="colorSurfaceVariant">@color/violet_theme_light_surfaceVariant</item>
+        <item name="colorOnSurfaceVariant">@color/violet_theme_light_onSurfaceVariant</item>
+        <item name="colorOutline">@color/violet_theme_light_outline</item>
+        <item name="colorOnSurfaceInverse">@color/violet_theme_light_inverseOnSurface</item>
+        <item name="colorSurfaceInverse">@color/violet_theme_light_inverseSurface</item>
+        <item name="colorPrimaryInverse">@color/violet_theme_light_inversePrimary</item>
+
+    </style>
+
     <style name="Pure">
 
         <item name="android:colorBackground">@android:color/white</item>
         <item name="colorSurface">@android:color/white</item>
+        <item name="colorSurfaceContainer">@android:color/white</item>
+        <item name="popupMenuBackground">?colorOnSurfaceInverse</item>
+
+    </style>
+
+    <style name="DialogActivity">
+
+        <item name="android:colorBackground">?attr/colorBackgroundFloating</item>
+        <item name="android:colorBackgroundCacheHint">@null</item>
+
+        <item name="android:windowFrame">@null</item>
+        <item name="android:windowTitleStyle">@style/RtlOverlay.DialogWindowTitle.AppCompat</item>
+        <item name="android:windowTitleBackgroundStyle">@style/Base.DialogWindowTitleBackground.AppCompat</item>
+        <item name="android:windowBackground">@drawable/abc_dialog_material_background</item>
+        <item name="android:windowIsFloating">true</item>
+        <item name="android:backgroundDimEnabled">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowAnimationStyle">@style/Animation.AppCompat.Dialog</item>
+        <item name="android:windowSoftInputMode">stateUnspecified|adjustPan</item>
+
+        <item name="windowActionBar">false</item>
+        <item name="windowActionModeOverlay">true</item>
+
+        <item name="listPreferredItemPaddingLeft">24dip</item>
+        <item name="listPreferredItemPaddingRight">24dip</item>
+
+        <item name="android:listDivider">@null</item>
+
+        <item name="android:buttonBarStyle">@style/Widget.AppCompat.ButtonBar.AlertDialog</item>
+        <item name="android:borderlessButtonStyle">@style/Widget.AppCompat.Button.Borderless</item>
+        <item name="android:windowCloseOnTouchOutside">true</item>
 
     </style>
 

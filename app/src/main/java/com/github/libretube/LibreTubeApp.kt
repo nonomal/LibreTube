@@ -1,26 +1,21 @@
 package com.github.libretube
 
 import android.app.Application
-import android.os.StrictMode
-import android.os.StrictMode.VmPolicy
 import androidx.core.app.NotificationChannelCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.work.ExistingPeriodicWorkPolicy
-import com.github.libretube.api.CronetHelper
-import com.github.libretube.api.RetrofitInstance
-import com.github.libretube.constants.BACKGROUND_CHANNEL_ID
-import com.github.libretube.constants.DOWNLOAD_CHANNEL_ID
-import com.github.libretube.constants.PUSH_CHANNEL_ID
-import com.github.libretube.db.DatabaseHolder
+import com.github.libretube.helpers.ImageHelper
+import com.github.libretube.helpers.NewPipeExtractorInstance
+import com.github.libretube.helpers.NotificationHelper
+import com.github.libretube.helpers.PreferenceHelper
+import com.github.libretube.helpers.ProxyHelper
+import com.github.libretube.helpers.ShortcutHelper
 import com.github.libretube.util.ExceptionHandler
-import com.github.libretube.util.ImageHelper
-import com.github.libretube.util.NotificationHelper
-import com.github.libretube.util.PreferenceHelper
-import com.github.libretube.util.ProxyHelper
 
 class LibreTubeApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        instance = this
 
         /**
          * Initialize the needed notification channels for DownloadService and BackgroundMode
@@ -33,21 +28,8 @@ class LibreTubeApp : Application() {
         PreferenceHelper.initialize(applicationContext)
 
         /**
-         * Initialize the [DatabaseHolder]
-         */
-        DatabaseHolder().initializeDatabase(this)
-
-        /**
-         * Bypassing fileUriExposedException, see https://stackoverflow.com/questions/38200282/android-os-fileuriexposedexception-file-storage-emulated-0-test-txt-exposed
-         */
-        val builder = VmPolicy.Builder()
-        StrictMode.setVmPolicy(builder.build())
-
-        /**
          * Set the api and the auth api url
          */
-        RetrofitInstance.initialize()
-        CronetHelper.initCronet(this)
         ImageHelper.initializeImageLoader(this)
 
         /**
@@ -69,6 +51,13 @@ class LibreTubeApp : Application() {
         val defaultExceptionHandler = Thread.getDefaultUncaughtExceptionHandler()
         val exceptionHandler = ExceptionHandler(defaultExceptionHandler)
         Thread.setDefaultUncaughtExceptionHandler(exceptionHandler)
+
+        /**
+         * Dynamically create App Shortcuts
+         */
+        ShortcutHelper.createShortcuts(this)
+
+        NewPipeExtractorInstance.init()
     }
 
     /**
@@ -76,21 +65,28 @@ class LibreTubeApp : Application() {
      */
     private fun initializeNotificationChannels() {
         val downloadChannel = NotificationChannelCompat.Builder(
-            DOWNLOAD_CHANNEL_ID,
-            NotificationManagerCompat.IMPORTANCE_NONE
+            PLAYLIST_DOWNLOAD_ENQUEUE_CHANNEL_NAME,
+            NotificationManagerCompat.IMPORTANCE_LOW
+        )
+            .setName(getString(R.string.download_playlist))
+            .setDescription(getString(R.string.enqueue_playlist_description))
+            .build()
+        val playlistDownloadEnqueueChannel = NotificationChannelCompat.Builder(
+            DOWNLOAD_CHANNEL_NAME,
+            NotificationManagerCompat.IMPORTANCE_LOW
         )
             .setName(getString(R.string.download_channel_name))
             .setDescription(getString(R.string.download_channel_description))
             .build()
-        val backgroundChannel = NotificationChannelCompat.Builder(
-            BACKGROUND_CHANNEL_ID,
+        val playerChannel = NotificationChannelCompat.Builder(
+            PLAYER_CHANNEL_NAME,
             NotificationManagerCompat.IMPORTANCE_LOW
         )
-            .setName(getString(R.string.background_channel_name))
-            .setDescription(getString(R.string.background_channel_description))
+            .setName(getString(R.string.player_channel_name))
+            .setDescription(getString(R.string.player_channel_description))
             .build()
         val pushChannel = NotificationChannelCompat.Builder(
-            PUSH_CHANNEL_ID,
+            PUSH_CHANNEL_NAME,
             NotificationManagerCompat.IMPORTANCE_DEFAULT
         )
             .setName(getString(R.string.push_channel_name))
@@ -101,9 +97,19 @@ class LibreTubeApp : Application() {
         notificationManager.createNotificationChannelsCompat(
             listOf(
                 downloadChannel,
-                backgroundChannel,
-                pushChannel
+                playlistDownloadEnqueueChannel,
+                pushChannel,
+                playerChannel
             )
         )
+    }
+
+    companion object {
+        lateinit var instance: LibreTubeApp
+
+        const val DOWNLOAD_CHANNEL_NAME = "download_service"
+        const val PLAYLIST_DOWNLOAD_ENQUEUE_CHANNEL_NAME = "playlist_download_enqueue"
+        const val PLAYER_CHANNEL_NAME = "player_mode"
+        const val PUSH_CHANNEL_NAME = "notification_worker"
     }
 }

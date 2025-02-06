@@ -14,8 +14,17 @@
             app:useSimpleSummaryProvider="true" />
 
         <ListPreference
+            android:icon="@drawable/ic_fullscreen"
+            app:defaultValue=""
+            app:entries="@array/defresNoPortrait"
+            app:entryValues="@array/defresValue"
+            app:key="default_res_no_fullscreen"
+            app:title="@string/no_fullscreen_resolution"
+            app:useSimpleSummaryProvider="true" />
+
+        <ListPreference
             android:icon="@drawable/ic_headphones"
-            app:defaultValue="best"
+            app:defaultValue="auto"
             app:entries="@array/audioQuality"
             app:entryValues="@array/audioQualityValues"
             app:key="player_audio_quality"
@@ -36,8 +45,17 @@
             app:useSimpleSummaryProvider="true" />
 
         <ListPreference
+            android:icon="@drawable/ic_fullscreen"
+            app:defaultValue=""
+            app:entries="@array/defresNoPortrait"
+            app:entryValues="@array/defresValue"
+            app:key="default_res_mobile_no_fullscreen"
+            app:title="@string/no_fullscreen_resolution"
+            app:useSimpleSummaryProvider="true" />
+
+        <ListPreference
             android:icon="@drawable/ic_headphones"
-            app:defaultValue="best"
+            app:defaultValue="auto"
             app:entries="@array/audioQuality"
             app:entryValues="@array/audioQualityValues"
             app:key="player_audio_quality_mobile"
@@ -45,7 +63,6 @@
             app:useSimpleSummaryProvider="true" />
 
     </PreferenceCategory>
-
 
     <PreferenceCategory app:title="@string/quality">
 
@@ -70,30 +87,40 @@
             app:useSimpleSummaryProvider="true" />
 
         <SwitchPreferenceCompat
-            android:defaultValue="false"
+            android:defaultValue="true"
             android:icon="@drawable/ic_list"
             android:summary="@string/hls_instead_of_dash_summary"
             android:title="@string/hls_instead_of_dash"
             app:key="use_hls" />
 
+        <SwitchPreferenceCompat
+            android:defaultValue="false"
+            android:icon="@drawable/ic_library"
+            android:summary="@string/lbry_hls_summary"
+            android:title="@string/lbry_hls"
+            app:key="lbry_hls" />
+
     </PreferenceCategory>
 
-    <PreferenceCategory app:title="@string/background_mode">
+    <PreferenceCategory app:title="@string/advanced">
 
-        <com.github.libretube.ui.views.SliderPreference
-            android:icon="@drawable/ic_speed"
-            app:defValue="1.0"
-            app:key="background_playback_speed"
-            app:stepSize="0.1"
-            app:title="@string/playback_speed"
-            app:valueFrom="0.2"
-            app:valueTo="4.0" />
+        <ListPreference
+            android:entries="@array/videoCodecs"
+            android:entryValues="@array/videoCodecValues"
+            android:icon="@drawable/ic_equalizer"
+            android:key="video_codecs"
+            app:defaultValue="all"
+            app:title="@string/codecs"
+            app:useSimpleSummaryProvider="true" />
 
-        <SwitchPreferenceCompat
-            android:defaultValue="true"
-            android:icon="@drawable/ic_grid"
-            android:title="@string/open_queue_from_notification"
-            app:key="notification_open_queue" />
+        <ListPreference
+            android:entries="@array/audioCodecs"
+            android:entryValues="@array/audioCodecValues"
+            android:icon="@drawable/ic_equalizer"
+            android:key="audio_codecs"
+            app:defaultValue="all"
+            app:title="@string/audio_codecs"
+            app:useSimpleSummaryProvider="true" />
 
     </PreferenceCategory>
 

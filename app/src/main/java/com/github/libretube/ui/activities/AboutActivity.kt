@@ -1,28 +1,26 @@
 package com.github.libretube.ui.activities
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
+import android.annotation.SuppressLint
 import android.content.Intent
-import android.net.Uri
+import android.content.res.Resources
 import android.os.Build
 import android.os.Bundle
 import androidx.core.text.HtmlCompat
 import androidx.core.text.parseAsHtml
+import com.github.libretube.BuildConfig
 import com.github.libretube.R
-import com.github.libretube.constants.GITHUB_URL
-import com.github.libretube.constants.LICENSE_URL
-import com.github.libretube.constants.PIPED_GITHUB_URL
-import com.github.libretube.constants.WEBLATE_URL
-import com.github.libretube.constants.WEBSITE_URL
 import com.github.libretube.databinding.ActivityAboutBinding
+import com.github.libretube.helpers.ClipboardHelper
+import com.github.libretube.helpers.IntentHelper
 import com.github.libretube.ui.base.BaseActivity
+import com.google.android.material.card.MaterialCardView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
 
 class AboutActivity : BaseActivity() {
     private lateinit var binding: ActivityAboutBinding
 
+    @SuppressLint("SetTextI18n")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -34,47 +32,23 @@ class AboutActivity : BaseActivity() {
         }
 
         binding.appIcon.setOnClickListener {
-            val sendIntent: Intent = Intent().apply {
-                action = Intent.ACTION_SEND
-                putExtra(Intent.EXTRA_TEXT, GITHUB_URL)
-                type = "text/plain"
-            }
-
-            val shareIntent = Intent.createChooser(sendIntent, null)
-            startActivity(shareIntent)
+            val sendIntent = Intent(Intent.ACTION_SEND)
+                .putExtra(Intent.EXTRA_TEXT, GITHUB_URL)
+                .setType("text/plain")
+            startActivity(Intent.createChooser(sendIntent, null))
         }
 
-        binding.website.setOnClickListener {
-            openLinkFromHref(WEBSITE_URL)
-        }
-        binding.website.setOnLongClickListener {
-            onLongClick(WEBSITE_URL)
-            true
+        val versionText = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
+        binding.versionTv.text = versionText
+        binding.versionCard.setOnClickListener {
+            ClipboardHelper.save(this, text = versionText, notify = true)
         }
 
-        binding.piped.setOnClickListener {
-            openLinkFromHref(PIPED_GITHUB_URL)
-        }
-        binding.piped.setOnLongClickListener {
-            onLongClick(PIPED_GITHUB_URL)
-            true
-        }
-
-        binding.translate.setOnClickListener {
-            openLinkFromHref(WEBLATE_URL)
-        }
-        binding.translate.setOnLongClickListener {
-            onLongClick(WEBLATE_URL)
-            true
-        }
-
-        binding.github.setOnClickListener {
-            openLinkFromHref(GITHUB_URL)
-        }
-        binding.github.setOnLongClickListener {
-            onLongClick(GITHUB_URL)
-            true
-        }
+        setupCard(binding.donate, DONATE_URL)
+        setupCard(binding.website, WEBSITE_URL)
+        setupCard(binding.piped, PIPED_GITHUB_URL)
+        setupCard(binding.translate, WEBLATE_URL)
+        setupCard(binding.github, GITHUB_URL)
 
         binding.license.setOnClickListener {
             showLicense()
@@ -89,18 +63,19 @@ class AboutActivity : BaseActivity() {
         }
     }
 
-    private fun openLinkFromHref(link: String) {
-        val uri = Uri.parse(link)
-        val intent = Intent(Intent.ACTION_VIEW).setData(uri)
-        startActivity(intent)
+    private fun setupCard(card: MaterialCardView, link: String) {
+        card.setOnClickListener {
+            IntentHelper.openLinkFromHref(this, supportFragmentManager, link)
+        }
+        card.setOnLongClickListener {
+            onLongClick(link)
+            true
+        }
     }
 
     private fun onLongClick(href: String) {
         // copy the link to the clipboard
-        val clipboard: ClipboardManager =
-            getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val clip = ClipData.newPlainText(getString(R.string.copied), href)
-        clipboard.setPrimaryClip(clip)
+        ClipboardHelper.save(this, text = href)
         // show the snackBar with open action
         Snackbar.make(
             binding.root,
@@ -108,7 +83,7 @@ class AboutActivity : BaseActivity() {
             Snackbar.LENGTH_LONG
         )
             .setAction(R.string.open_copied) {
-                openLinkFromHref(href)
+                IntentHelper.openLinkFromHref(this, supportFragmentManager, href)
             }
             .setAnimationMode(Snackbar.ANIMATION_MODE_FADE)
             .show()
@@ -128,18 +103,32 @@ class AboutActivity : BaseActivity() {
     }
 
     private fun showDeviceInfo() {
+        val metrics = Resources.getSystem().displayMetrics
+
         val text = "Manufacturer: ${Build.MANUFACTURER}\n" +
-            "Model: ${Build.MODEL}\n" +
-            "SDK: ${Build.VERSION.SDK_INT}\n" +
-            "Board: ${Build.BOARD}\n" +
-            "OS: Android ${Build.VERSION.RELEASE}\n" +
-            "Arch: ${Build.SUPPORTED_ABIS[0]}\n" +
-            "Product: ${Build.PRODUCT}"
+                "Board: ${Build.BOARD}\n" +
+                "Arch: ${Build.SUPPORTED_ABIS[0]}\n" +
+                "Android SDK: ${Build.VERSION.SDK_INT}\n" +
+                "OS: Android ${Build.VERSION.RELEASE}\n" +
+                "Display: ${metrics.widthPixels}x${metrics.heightPixels}\n" +
+                "Font scale: ${Resources.getSystem().configuration.fontScale}"
 
         MaterialAlertDialogBuilder(this)
             .setTitle(R.string.device_info)
             .setMessage(text)
+            .setNegativeButton(R.string.copy_tooltip) { _, _ ->
+                ClipboardHelper.save(this@AboutActivity, text = text)
+            }
             .setPositiveButton(R.string.okay, null)
             .show()
+    }
+
+    companion object {
+        const val DONATE_URL = "https://github.com/libre-tube/LibreTube#donate"
+        private const val WEBSITE_URL = "https://libretube.dev"
+        private const val GITHUB_URL = "https://github.com/libre-tube/LibreTube"
+        private const val PIPED_GITHUB_URL = "https://github.com/TeamPiped/Piped"
+        private const val WEBLATE_URL = "https://hosted.weblate.org/projects/libretube/libretube/"
+        private const val LICENSE_URL = "https://gnu.org/"
     }
 }

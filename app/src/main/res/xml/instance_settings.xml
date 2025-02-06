@@ -6,7 +6,7 @@
 
         <ListPreference
             android:icon="@drawable/ic_server"
-            app:defaultValue="https://pipedapi.kavin.rocks/"
+            app:defaultValue="https://pipedapi.kavin.rocks"
             app:entries="@array/instances"
             app:entryValues="@array/instancesValue"
             app:key="selectInstance"
@@ -31,8 +31,9 @@
             app:title="@string/auth_instance" />
 
         <ListPreference
+            android:dependency="auth_instance_toggle"
             android:icon="@drawable/ic_server"
-            app:defaultValue="https://pipedapi.kavin.rocks/"
+            app:defaultValue="https://pipedapi.kavin.rocks"
             app:entries="@array/instances"
             app:entryValues="@array/instancesValue"
             app:key="selectAuthInstance"
@@ -49,6 +50,13 @@
             app:title="@string/login_register" />
 
         <Preference
+            android:icon="@drawable/ic_login_filled"
+            android:summary="@string/notgmail"
+            app:isPreferenceVisible="false"
+            app:key="logout"
+            app:title="@string/logout" />
+
+        <Preference
             android:icon="@drawable/ic_reset"
             android:summary="@string/deleteAccount_summary"
             app:key="delete_account"
@@ -56,18 +64,41 @@
 
     </PreferenceCategory>
 
-    <PreferenceCategory app:title="@string/restore">
+    <PreferenceCategory app:title="@string/proxy">
 
-        <Preference
-            android:icon="@drawable/ic_download_filled"
-            android:summary="@string/import_from_yt_summary"
-            app:key="import_from_yt"
-            app:title="@string/import_from_yt" />
+        <SwitchPreferenceCompat
+            android:defaultValue="false"
+            android:icon="@drawable/ic_server"
+            android:summary="@string/disable_proxy_summary"
+            android:title="@string/disable_proxy"
+            app:key="disable_video_image_proxy" />
 
-        <Preference
-            android:icon="@drawable/ic_upload"
-            app:key="export_subs"
-            app:title="@string/export_subscriptions" />
+        <SwitchPreferenceCompat
+            android:defaultValue="true"
+            android:icon="@drawable/ic_region"
+            android:summary="@string/local_stream_extraction_summary"
+            android:title="@string/local_stream_extraction"
+            android:dependency="disable_video_image_proxy"
+            app:key="local_stream_extraction" />
+
+        <SwitchPreferenceCompat
+            android:defaultValue="true"
+            android:icon="@drawable/ic_dislike"
+            android:summary="@string/local_ryd_summary"
+            android:title="@string/local_ryd"
+            android:dependency="local_stream_extraction"
+            app:key="local_return_youtube_dislikes" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="@string/subscriptions">
+
+        <SwitchPreferenceCompat
+            android:defaultValue="false"
+            android:icon="@drawable/ic_region"
+            android:summary="@string/local_feed_extraction_summary"
+            android:title="@string/local_feed_extraction"
+            app:key="local_feed_extraction" />
 
     </PreferenceCategory>
 

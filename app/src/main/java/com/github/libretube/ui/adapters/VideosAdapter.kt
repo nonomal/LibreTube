@@ -2,194 +2,214 @@ package com.github.libretube.ui.adapters
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.text.format.DateUtils
 import android.view.LayoutInflater
-import android.view.View
 import android.view.ViewGroup
+import androidx.core.os.bundleOf
+import androidx.core.view.isGone
+import androidx.core.view.isVisible
+import androidx.core.view.updateLayoutParams
 import androidx.recyclerview.widget.GridLayoutManager
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
+import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView.LayoutManager
-import com.github.libretube.R
 import com.github.libretube.api.obj.StreamItem
+import com.github.libretube.constants.IntentData
 import com.github.libretube.constants.PreferenceKeys
+import com.github.libretube.databinding.AllCaughtUpRowBinding
 import com.github.libretube.databinding.TrendingRowBinding
 import com.github.libretube.databinding.VideoRowBinding
-import com.github.libretube.extensions.formatShort
-import com.github.libretube.extensions.toDp
+import com.github.libretube.db.DatabaseHolder
+import com.github.libretube.extensions.ceilHalf
+import com.github.libretube.extensions.dpToPx
 import com.github.libretube.extensions.toID
+import com.github.libretube.helpers.ImageHelper
+import com.github.libretube.helpers.NavigationHelper
+import com.github.libretube.helpers.PreferenceHelper
+import com.github.libretube.ui.adapters.callbacks.DiffUtilItemCallback
 import com.github.libretube.ui.base.BaseActivity
 import com.github.libretube.ui.extensions.setFormattedDuration
 import com.github.libretube.ui.extensions.setWatchProgressLength
 import com.github.libretube.ui.sheets.VideoOptionsBottomSheet
 import com.github.libretube.ui.viewholders.VideosViewHolder
-import com.github.libretube.util.ImageHelper
-import com.github.libretube.util.NavigationHelper
-import com.github.libretube.util.PreferenceHelper
 import com.github.libretube.util.TextUtils
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class VideosAdapter(
-    private val streamItems: MutableList<StreamItem>,
-    private val showAllAtOnce: Boolean = true,
-    private val forceMode: ForceMode = ForceMode.NONE
-) : RecyclerView.Adapter<VideosViewHolder>() {
+    private val forceMode: LayoutMode = LayoutMode.RESPECT_PREF
+) : ListAdapter<StreamItem, VideosViewHolder>(DiffUtilItemCallback()) {
 
-    var index = 10
-
-    override fun getItemCount(): Int {
-        return when {
-            showAllAtOnce -> streamItems.size
-            index >= streamItems.size -> streamItems.size - 1
-            else -> index
-        }
-    }
-
-    fun updateItems() {
-        val oldSize = index
-        index += 10
-        notifyItemRangeInserted(oldSize, index)
+    override fun getItemViewType(position: Int): Int {
+        return if (currentList[position].type == CAUGHT_UP_STREAM_TYPE) CAUGHT_UP_TYPE else NORMAL_TYPE
     }
 
     fun insertItems(newItems: List<StreamItem>) {
-        val feedSize = streamItems.size
-        streamItems.addAll(newItems)
-        notifyItemRangeInserted(feedSize, newItems.size)
+        val updatedList = currentList.toMutableList().also {
+            it.addAll(newItems)
+        }
+
+        submitList(updatedList)
+    }
+
+    fun removeItemById(videoId: String) {
+        val index = currentList.indexOfFirst {
+            it.url?.toID() == videoId
+        }.takeIf { it > 0 } ?: return
+        val updatedList = currentList.toMutableList().also {
+            it.removeAt(index)
+        }
+
+        submitList(updatedList)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VideosViewHolder {
         val layoutInflater = LayoutInflater.from(parent.context)
         return when {
-            forceMode in listOf(ForceMode.TRENDING, ForceMode.RELATED, ForceMode.HOME) -> VideosViewHolder(TrendingRowBinding.inflate(layoutInflater, parent, false))
-            forceMode == ForceMode.CHANNEL -> VideosViewHolder(VideoRowBinding.inflate(layoutInflater, parent, false))
+            viewType == CAUGHT_UP_TYPE -> VideosViewHolder(
+                AllCaughtUpRowBinding.inflate(layoutInflater, parent, false)
+            )
+
+            forceMode in listOf(
+                LayoutMode.TRENDING_ROW,
+                LayoutMode.RELATED_COLUMN
+            ) -> VideosViewHolder(
+                TrendingRowBinding.inflate(layoutInflater, parent, false)
+            )
+
+            forceMode == LayoutMode.CHANNEL_ROW -> VideosViewHolder(
+                VideoRowBinding.inflate(layoutInflater, parent, false)
+            )
+
             PreferenceHelper.getBoolean(
                 PreferenceKeys.ALTERNATIVE_VIDEOS_LAYOUT,
                 false
             ) -> VideosViewHolder(VideoRowBinding.inflate(layoutInflater, parent, false))
+
             else -> VideosViewHolder(TrendingRowBinding.inflate(layoutInflater, parent, false))
         }
     }
 
     @SuppressLint("SetTextI18n")
     override fun onBindViewHolder(holder: VideosViewHolder, position: Int) {
-        val video = streamItems[position]
+        val video = getItem(holder.bindingAdapterPosition)
+        val videoId = video.url.orEmpty().toID()
 
-        // hide the item if there was an extractor error
-        if (video.title == null) {
-            holder.itemView.visibility = View.GONE
-            holder.itemView.layoutParams = RecyclerView.LayoutParams(0, 0)
-            return
-        }
+        val context = (
+            holder.videoRowBinding ?: holder.trendingRowBinding ?: holder.allCaughtUpBinding
+            )!!.root.context
+        val activity = (context as BaseActivity)
+        val fragmentManager = activity.supportFragmentManager
 
         // Trending layout
         holder.trendingRowBinding?.apply {
             // set a fixed width for better visuals
-            val params = root.layoutParams
-            when (forceMode) {
-                ForceMode.RELATED -> params.width = (180).toDp(root.context.resources).toInt()
-                ForceMode.HOME -> params.width = (250).toDp(root.context.resources).toInt()
-                else -> {}
+            if (forceMode == LayoutMode.RELATED_COLUMN) {
+                root.updateLayoutParams {
+                    width = 250f.dpToPx()
+                }
             }
-            root.layoutParams = params
+            watchProgress.setWatchProgressLength(videoId, video.duration ?: 0L)
 
             textViewTitle.text = video.title
-            textViewChannel.text =
-                video.uploaderName + TextUtils.SEPARATOR +
-                video.views.formatShort() + " " +
-                root.context.getString(R.string.views_placeholder) +
-                TextUtils.SEPARATOR + video.uploaded?.let { DateUtils.getRelativeTimeSpanString(it) }
-            video.duration?.let { thumbnailDuration.setFormattedDuration(it) }
+            textViewChannel.text = TextUtils.formatViewsString(root.context, video.views ?: -1, video.uploaded, video.uploaderName)
+
+            video.duration?.let { thumbnailDuration.setFormattedDuration(it, video.isShort, video.uploaded) }
             channelImage.setOnClickListener {
                 NavigationHelper.navigateChannel(root.context, video.uploaderUrl)
             }
             ImageHelper.loadImage(video.thumbnail, thumbnail)
-            ImageHelper.loadImage(video.uploaderAvatar, channelImage)
+            ImageHelper.loadImage(video.uploaderAvatar, channelImage, true)
             root.setOnClickListener {
-                NavigationHelper.navigateVideo(root.context, video.url)
+                NavigationHelper.navigateVideo(root.context, videoId)
             }
-            val videoId = video.url?.toID()
-            val videoName = video.title
+
             root.setOnLongClickListener {
-                if (videoId == null || videoName == null) return@setOnLongClickListener true
-
-                VideoOptionsBottomSheet(videoId, videoName)
-                    .show((root.context as BaseActivity).supportFragmentManager, VideoOptionsBottomSheet::class.java.name)
-
+                fragmentManager.setFragmentResultListener(
+                    VideoOptionsBottomSheet.VIDEO_OPTIONS_SHEET_REQUEST_KEY,
+                    activity
+                ) { _, _ ->
+                    notifyItemChanged(position)
+                }
+                val sheet = VideoOptionsBottomSheet()
+                sheet.arguments = bundleOf(IntentData.streamItem to video)
+                sheet.show(fragmentManager, VideosAdapter::class.java.name)
                 true
-            }
-            if (videoId != null) {
-                watchProgress.setWatchProgressLength(videoId, video.duration ?: 0L)
             }
         }
 
         // Normal videos row layout
         holder.videoRowBinding?.apply {
             videoTitle.text = video.title
+            videoInfo.text = TextUtils.formatViewsString(root.context, video.views ?: -1, video.uploaded)
 
-            videoInfo.text =
-                video.views.formatShort() + " " +
-                root.context.getString(R.string.views_placeholder) +
-                TextUtils.SEPARATOR + video.uploaded?.let { DateUtils.getRelativeTimeSpanString(it) }
-
-            thumbnailDuration.text =
-                video.duration?.let { DateUtils.formatElapsedTime(it) }
-
+            video.duration?.let { thumbnailDuration.setFormattedDuration(it, video.isShort, video.uploaded) }
+            watchProgress.setWatchProgressLength(videoId, video.duration ?: 0L)
             ImageHelper.loadImage(video.thumbnail, thumbnail)
 
-            if (forceMode != ForceMode.CHANNEL) {
-                ImageHelper.loadImage(video.uploaderAvatar, channelImage)
+            if (forceMode != LayoutMode.CHANNEL_ROW) {
+                ImageHelper.loadImage(video.uploaderAvatar, channelImage, true)
                 channelName.text = video.uploaderName
 
                 channelContainer.setOnClickListener {
                     NavigationHelper.navigateChannel(root.context, video.uploaderUrl)
                 }
+            } else {
+                channelImageContainer.isGone = true
             }
 
             root.setOnClickListener {
-                NavigationHelper.navigateVideo(root.context, video.url)
+                NavigationHelper.navigateVideo(root.context, videoId)
             }
 
-            val videoId = video.url?.toID()
-            val videoName = video.title
             root.setOnLongClickListener {
-                if (videoId == null || videoName == null) return@setOnLongClickListener true
-                VideoOptionsBottomSheet(videoId, videoName)
-                    .show((root.context as BaseActivity).supportFragmentManager, VideoOptionsBottomSheet::class.java.name)
-
+                fragmentManager.setFragmentResultListener(
+                    VideoOptionsBottomSheet.VIDEO_OPTIONS_SHEET_REQUEST_KEY,
+                    activity
+                ) { _, _ ->
+                    notifyItemChanged(position)
+                }
+                val sheet = VideoOptionsBottomSheet()
+                sheet.arguments = bundleOf(IntentData.streamItem to video)
+                sheet.show(fragmentManager, VideosAdapter::class.java.name)
                 true
             }
 
-            if (videoId != null) {
-                watchProgress.setWatchProgressLength(videoId, video.duration ?: 0L)
+            CoroutineScope(Dispatchers.IO).launch {
+                val isDownloaded =
+                    DatabaseHolder.Database.downloadDao().exists(videoId)
+
+                withContext(Dispatchers.Main) {
+                    downloadBadge.isVisible = isDownloaded
+                }
             }
         }
     }
 
     companion object {
-        enum class ForceMode {
-            NONE,
-            TRENDING,
-            ROW,
-            CHANNEL,
-            RELATED,
-            HOME
+        enum class LayoutMode {
+            RESPECT_PREF,
+            TRENDING_ROW,
+            VIDEO_ROW,
+            CHANNEL_ROW,
+            RELATED_COLUMN
         }
 
-        fun getLayout(context: Context): LayoutManager {
+        fun getLayout(context: Context, gridItems: Int): LayoutManager {
             return if (PreferenceHelper.getBoolean(
                     PreferenceKeys.ALTERNATIVE_VIDEOS_LAYOUT,
                     false
                 )
             ) {
-                LinearLayoutManager(context)
+                GridLayoutManager(context, gridItems.ceilHalf())
             } else {
-                GridLayoutManager(
-                    context,
-                    PreferenceHelper.getString(
-                        PreferenceKeys.GRID_COLUMNS,
-                        context.resources.getInteger(R.integer.grid_items).toString()
-                    ).toInt()
-                )
+                GridLayoutManager(context, gridItems)
             }
         }
+
+        private const val NORMAL_TYPE = 0
+        private const val CAUGHT_UP_TYPE = 1
+
+        const val CAUGHT_UP_STREAM_TYPE = "caught"
     }
 }

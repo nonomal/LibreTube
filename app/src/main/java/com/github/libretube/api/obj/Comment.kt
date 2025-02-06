@@ -1,19 +1,24 @@
 package com.github.libretube.api.obj
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import android.os.Parcelable
+import kotlinx.parcelize.Parcelize
+import kotlinx.serialization.Serializable
 
-@JsonIgnoreProperties(ignoreUnknown = true)
+@Serializable
+@Parcelize
 data class Comment(
-    val author: String? = null,
-    val commentId: String? = null,
-    val commentText: String? = null,
-    val commentedTime: String? = null,
-    val commentorUrl: String? = null,
+    val author: String,
+    val commentId: String,
+    val commentText: String?,
+    val commentedTime: String,
+    val commentorUrl: String,
     val repliesPage: String? = null,
-    val hearted: Boolean? = null,
-    val likeCount: Long? = null,
-    val pinned: Boolean? = null,
-    val thumbnail: String? = null,
-    val verified: Boolean? = null,
-    val replyCount: Long? = null
-)
+    val hearted: Boolean,
+    val likeCount: Long,
+    val pinned: Boolean,
+    val thumbnail: String,
+    val verified: Boolean,
+    val replyCount: Long,
+    val creatorReplied: Boolean = false,
+    val channelOwner: Boolean = false
+) : Parcelable

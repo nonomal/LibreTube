@@ -1,1314 +1,1273 @@
 package com.github.libretube.ui.fragments
 
 import android.annotation.SuppressLint
-import android.app.ActivityManager
-import android.app.PictureInPictureParams
+import android.app.Activity
+import android.app.Dialog
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.media.session.PlaybackState
-import android.net.Uri
 import android.os.Build
-import android.os.Build.VERSION.SDK_INT
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
-import android.text.Html
-import android.text.format.DateUtils
-import android.util.Base64
-import android.util.Log
-import android.view.LayoutInflater
-import android.view.MotionEvent
+import android.view.KeyEvent
+import android.view.PixelCopy
+import android.view.SurfaceView
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewGroup.LayoutParams
 import android.widget.Toast
-import androidx.annotation.RequiresApi
+import androidx.activity.BackEventCompat
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.constraintlayout.motion.widget.MotionLayout
+import androidx.constraintlayout.motion.widget.TransitionAdapter
+import androidx.core.content.ContextCompat
+import androidx.core.content.getSystemService
+import androidx.core.graphics.drawable.toDrawable
 import androidx.core.net.toUri
 import androidx.core.os.bundleOf
-import androidx.core.view.isEmpty
+import androidx.core.os.postDelayed
+import androidx.core.view.SoftwareKeyboardControllerCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.isGone
 import androidx.core.view.isVisible
+import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
+import androidx.fragment.app.commit
+import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.media3.common.C
+import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.session.MediaController
 import androidx.recyclerview.widget.LinearLayoutManager
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.github.libretube.R
-import com.github.libretube.api.CronetHelper
-import com.github.libretube.api.RetrofitInstance
+import com.github.libretube.api.JsonHelper
 import com.github.libretube.api.obj.ChapterSegment
-import com.github.libretube.api.obj.PipedStream
 import com.github.libretube.api.obj.Segment
-import com.github.libretube.api.obj.SegmentData
-import com.github.libretube.api.obj.StreamItem
 import com.github.libretube.api.obj.Streams
+import com.github.libretube.api.obj.Subtitle
+import com.github.libretube.compat.PictureInPictureCompat
+import com.github.libretube.compat.PictureInPictureParamsCompat
 import com.github.libretube.constants.IntentData
 import com.github.libretube.constants.PreferenceKeys
-import com.github.libretube.databinding.DoubleTapOverlayBinding
-import com.github.libretube.databinding.ExoStyledPlayerControlViewBinding
 import com.github.libretube.databinding.FragmentPlayerBinding
-import com.github.libretube.databinding.PlayerGestureControlsViewBinding
-import com.github.libretube.db.DatabaseHelper
-import com.github.libretube.db.DatabaseHolder.Companion.Database
-import com.github.libretube.db.obj.WatchPosition
+import com.github.libretube.db.DatabaseHolder
+import com.github.libretube.enums.PlayerCommand
+import com.github.libretube.enums.PlayerEvent
 import com.github.libretube.enums.ShareObjectType
-import com.github.libretube.extensions.TAG
-import com.github.libretube.extensions.awaitQuery
 import com.github.libretube.extensions.formatShort
-import com.github.libretube.extensions.hideKeyboard
-import com.github.libretube.extensions.query
+import com.github.libretube.extensions.parcelable
+import com.github.libretube.extensions.serializableExtra
 import com.github.libretube.extensions.toID
-import com.github.libretube.extensions.toStreamItem
+import com.github.libretube.extensions.togglePlayPauseState
+import com.github.libretube.extensions.updateIfChanged
+import com.github.libretube.helpers.BackgroundHelper
+import com.github.libretube.helpers.DownloadHelper
+import com.github.libretube.helpers.ImageHelper
+import com.github.libretube.helpers.IntentHelper
+import com.github.libretube.helpers.NavBarHelper
+import com.github.libretube.helpers.NavigationHelper
+import com.github.libretube.helpers.PlayerHelper
+import com.github.libretube.helpers.PlayerHelper.checkForSegments
+import com.github.libretube.helpers.PlayerHelper.isInSegment
+import com.github.libretube.helpers.PreferenceHelper
+import com.github.libretube.helpers.ProxyHelper
+import com.github.libretube.helpers.ThemeHelper
+import com.github.libretube.helpers.WindowHelper
 import com.github.libretube.obj.ShareData
 import com.github.libretube.obj.VideoResolution
-import com.github.libretube.services.BackgroundMode
-import com.github.libretube.services.DownloadService
+import com.github.libretube.parcelable.PlayerData
+import com.github.libretube.services.AbstractPlayerService
+import com.github.libretube.services.VideoOnlinePlayerService
 import com.github.libretube.ui.activities.MainActivity
-import com.github.libretube.ui.adapters.ChaptersAdapter
-import com.github.libretube.ui.adapters.CommentsAdapter
 import com.github.libretube.ui.adapters.VideosAdapter
-import com.github.libretube.ui.base.BaseFragment
+import com.github.libretube.ui.base.BaseActivity
 import com.github.libretube.ui.dialogs.AddToPlaylistDialog
-import com.github.libretube.ui.dialogs.DownloadDialog
+import com.github.libretube.ui.dialogs.PlayOfflineDialog
 import com.github.libretube.ui.dialogs.ShareDialog
-import com.github.libretube.ui.extensions.setInvisible
+import com.github.libretube.ui.extensions.animateDown
+import com.github.libretube.ui.extensions.setOnBackPressed
 import com.github.libretube.ui.extensions.setupSubscriptionButton
 import com.github.libretube.ui.interfaces.OnlinePlayerOptions
+import com.github.libretube.ui.listeners.SeekbarPreviewListener
+import com.github.libretube.ui.models.ChaptersViewModel
+import com.github.libretube.ui.models.CommentsViewModel
+import com.github.libretube.ui.models.CommonPlayerViewModel
 import com.github.libretube.ui.models.PlayerViewModel
 import com.github.libretube.ui.sheets.BaseBottomSheet
-import com.github.libretube.ui.sheets.PlayingQueueSheet
-import com.github.libretube.util.BackgroundHelper
-import com.github.libretube.util.DashHelper
-import com.github.libretube.util.ImageHelper
-import com.github.libretube.util.NowPlayingNotification
-import com.github.libretube.util.PlayerHelper
+import com.github.libretube.ui.sheets.CommentsSheet
+import com.github.libretube.ui.sheets.StatsSheet
+import com.github.libretube.util.OnlineTimeFrameReceiver
 import com.github.libretube.util.PlayingQueue
-import com.github.libretube.util.PreferenceHelper
 import com.github.libretube.util.TextUtils
-import com.google.android.exoplayer2.C
-import com.google.android.exoplayer2.DefaultLoadControl
-import com.google.android.exoplayer2.ExoPlayer
-import com.google.android.exoplayer2.MediaItem
-import com.google.android.exoplayer2.MediaItem.SubtitleConfiguration
-import com.google.android.exoplayer2.PlaybackException
-import com.google.android.exoplayer2.Player
-import com.google.android.exoplayer2.audio.AudioAttributes
-import com.google.android.exoplayer2.ext.cronet.CronetDataSource
-import com.google.android.exoplayer2.source.DefaultMediaSourceFactory
-import com.google.android.exoplayer2.text.Cue.TEXT_SIZE_TYPE_ABSOLUTE
-import com.google.android.exoplayer2.trackselection.DefaultTrackSelector
-import com.google.android.exoplayer2.ui.CaptionStyleCompat
-import com.google.android.exoplayer2.ui.StyledPlayerView
-import com.google.android.exoplayer2.upstream.DefaultDataSource
-import com.google.android.exoplayer2.util.MimeTypes
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import kotlinx.coroutines.CoroutineScope
+import com.github.libretube.util.TextUtils.toTimeInSeconds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import org.chromium.net.CronetEngine
-import retrofit2.HttpException
-import java.io.IOException
-import java.util.*
-import java.util.concurrent.Executors
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlin.math.abs
+import kotlin.math.ceil
 
-class PlayerFragment : BaseFragment(), OnlinePlayerOptions {
 
-    lateinit var binding: FragmentPlayerBinding
-    private lateinit var playerBinding: ExoStyledPlayerControlViewBinding
-    private lateinit var doubleTapOverlayBinding: DoubleTapOverlayBinding
-    private lateinit var playerGestureControlsViewBinding: PlayerGestureControlsViewBinding
-    private val viewModel: PlayerViewModel by activityViewModels()
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+class PlayerFragment : Fragment(R.layout.fragment_player), OnlinePlayerOptions {
+    private var _binding: FragmentPlayerBinding? = null
+    val binding get() = _binding!!
 
-    /**
-     * video information
-     */
-    private var videoId: String? = null
+    private val playerBinding get() = binding.player.binding
+    private val doubleTapOverlayBinding get() = binding.doubleTapOverlay.binding
+    private val playerGestureControlsViewBinding get() = binding.playerGestureControlsView.binding
+
+    private val commonPlayerViewModel: CommonPlayerViewModel by activityViewModels()
+    private val viewModel: PlayerViewModel by viewModels()
+    private val commentsViewModel: CommentsViewModel by activityViewModels()
+    private val chaptersViewModel: ChaptersViewModel by activityViewModels()
+    private lateinit var playerController: MediaController
+
+    // Video information passed by the intent
+    private lateinit var videoId: String
     private var playlistId: String? = null
-    private var isLive = false
+    private var channelId: String? = null
+
+    // data and objects stored for the player
     private lateinit var streams: Streams
+    val isShort
+        get() = run {
+            val heightGreaterThanWidth =
+                ::streams.isInitialized && streams.videoStreams.firstOrNull()?.let {
+                    (it.height ?: 0) > (it.width ?: 0)
+                } == true
+
+            PlayingQueue.getCurrent()?.isShort == true || heightGreaterThanWidth
+        }
+
+    // if null, it's been set to automatic
+    private var fullscreenResolution: Int? = null
+
+    // the resolution to use when the video is not played in fullscreen
+    // if null, use same quality as fullscreen
+    private var noFullscreenResolution: Int? = null
+
+    private var selectedAudioLanguageAndRoleFlags: Pair<String?, @C.RoleFlags Int>? = null
+
+    private val handler = Handler(Looper.getMainLooper())
+
+    private var seekBarPreviewListener: SeekbarPreviewListener? = null
+
+    // True when the video was closed through the close button on PiP mode
+    private var closedVideo = false
+
+    private var autoPlayCountdownEnabled = PlayerHelper.autoPlayCountdown
 
     /**
-     * for the transition
+     * The orientation of the `fragment_player.xml` that's currently used
+     * This is needed in order to figure out if the current layout is the landscape one or not.
      */
-    private var sId: Int = 0
-    private var eId: Int = 0
-    private var transitioning = false
+    private var playerLayoutOrientation = Int.MIN_VALUE
+
+    // Activity that's active during PiP, can be used for controlling its lifecycle.
+    private var pipActivity: Activity? = null
+
+    private val mainActivity get() = activity as MainActivity
+    private val windowInsetsControllerCompat
+        get() = WindowCompat
+            .getInsetsController(mainActivity.window, mainActivity.window.decorView)
+
+    private val fullscreenDialog by lazy {
+        object : Dialog(requireContext(), android.R.style.Theme_Black_NoTitleBar_Fullscreen) {
+            @Deprecated("Deprecated in Java", ReplaceWith("onbackpressedispatcher and callback"))
+            override fun onBackPressed() {
+                unsetFullscreen()
+            }
+
+            override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+                if (_binding?.player?.onKeyUp(keyCode, event) == true) {
+                    return true
+                }
+
+                return super.onKeyUp(keyCode, event)
+            }
+        }
+    }
 
     /**
-     * for the comments
+     * Receiver for all actions in the PiP mode
      */
-    private var commentsAdapter: CommentsAdapter? = null
-    private var nextPage: String? = null
-    private var isLoading = true
+    private val playerActionReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val event = intent.serializableExtra<PlayerEvent>(PlayerHelper.CONTROL_TYPE) ?: return
 
-    /**
-     * for the player
-     */
-    private lateinit var exoPlayer: ExoPlayer
-    private lateinit var trackSelector: DefaultTrackSelector
-    private lateinit var segmentData: SegmentData
-    private lateinit var chapters: List<ChapterSegment>
+            if (PlayerHelper.handlePlayerAction(playerController, event)) return
 
-    /**
-     * for the player view
-     */
-    private lateinit var exoPlayerView: StyledPlayerView
-    private var subtitles = mutableListOf<SubtitleConfiguration>()
+            when (event) {
+                PlayerEvent.Next -> {
+                    PlayingQueue.getNext()?.let { playNextVideo(it) }
+                }
 
-    /**
-     * user preferences
-     */
-    private var videoShownInExternalPlayer = false
+                PlayerEvent.Prev -> {
+                    PlayingQueue.getPrev()?.let { playNextVideo(it) }
+                }
 
-    /**
-     * for the player notification
-     */
-    private lateinit var nowPlayingNotification: NowPlayingNotification
+                PlayerEvent.Background -> {
+                    playOnBackground()
+                    // wait some time in order for the service to get started properly
+                    handler.postDelayed(500) {
+                        pipActivity?.moveTaskToBack(false)
+                        pipActivity = null
+                    }
+                }
+
+                else -> Unit
+            }
+        }
+    }
+
+    private var bufferingTimeoutTask: Runnable? = null
+
+    private val playerListener = object : Player.Listener {
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (PlayerHelper.pipEnabled || PictureInPictureCompat.isInPictureInPictureMode(
+                    mainActivity
+                )
+            ) {
+                PictureInPictureCompat.setPictureInPictureParams(requireActivity(), pipParams)
+            }
+
+            if (isPlaying && PlayerHelper.sponsorBlockEnabled) {
+                handler.postDelayed(
+                    this@PlayerFragment::checkForSegments,
+                    100
+                )
+            }
+        }
+
+        override fun onEvents(player: Player, events: Player.Events) {
+            super.onEvents(player, events)
+
+            if (events.containsAny(
+                    Player.EVENT_PLAYBACK_STATE_CHANGED,
+                    Player.EVENT_IS_PLAYING_CHANGED,
+                    Player.EVENT_PLAY_WHEN_READY_CHANGED
+                ) && _binding != null
+            ) {
+                updatePlayPauseButton()
+            }
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            // set the playback speed to one if having reached the end of a livestream
+            if (playbackState == Player.STATE_BUFFERING && binding.player.isLive &&
+                playerController.duration - playerController.currentPosition < 700
+            ) {
+                playerController.setPlaybackSpeed(1f)
+            }
+
+            // check if video has ended, next video is available and autoplay is enabled/the video is part of a played playlist.
+            if (playbackState == Player.STATE_ENDED) {
+                if (PlayerHelper.isAutoPlayEnabled(playlistId != null) && autoPlayCountdownEnabled) {
+                    showAutoPlayCountdown()
+                } else {
+                    binding.player.showControllerPermanently()
+                }
+            }
+
+            // listen for the stop button in the notification
+            if (playbackState == PlaybackState.STATE_STOPPED && PlayerHelper.pipEnabled &&
+                PictureInPictureCompat.isInPictureInPictureMode(requireActivity())
+            ) {
+                // finish PiP by finishing the activity
+                activity?.finish()
+            }
+
+            // Buffering timeout after 10 Minutes
+            if (playbackState == Player.STATE_BUFFERING) {
+                if (bufferingTimeoutTask == null) {
+                    bufferingTimeoutTask = Runnable {
+                        playerController.pause()
+                    }
+                }
+
+                handler.postDelayed(bufferingTimeoutTask!!, PlayerHelper.MAX_BUFFER_DELAY)
+            } else {
+                bufferingTimeoutTask?.let { handler.removeCallbacks(it) }
+            }
+
+            super.onPlaybackStateChanged(playbackState)
+        }
+
+        override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
+            super.onMediaMetadataChanged(mediaMetadata)
+
+            // JSON-encode as work-around for https://github.com/androidx/media/issues/564
+            val maybeStreams: Streams? = mediaMetadata.extras?.getString(IntentData.streams)?.let {
+                JsonHelper.json.decodeFromString(it)
+            }
+            maybeStreams?.let { streams ->
+                this@PlayerFragment.streams = streams
+                viewModel.segments.postValue(emptyList())
+                setPlayerDefaults()
+                updatePlayerView()
+            }
+        }
+
+        override fun onPlaylistMetadataChanged(mediaMetadata: MediaMetadata) {
+            super.onPlaylistMetadataChanged(mediaMetadata)
+
+            mediaMetadata.extras?.getString(IntentData.videoId)?.let {
+                videoId = it
+                _binding?.autoplayCountdown?.cancelAndHideCountdown()
+
+                // fix: if the fragment is recreated, play the current video, and not the initial one
+                arguments?.run {
+                    val playerData =
+                        parcelable<PlayerData>(IntentData.playerData)!!.copy(videoId = videoId)
+                    putParcelable(IntentData.playerData, playerData)
+                }
+            }
+
+            // JSON-encode as work-around for https://github.com/androidx/media/issues/564
+            val segments: List<Segment>? = mediaMetadata.extras?.getString(IntentData.segments)?.let {
+                JsonHelper.json.decodeFromString(it)
+            }
+            viewModel.segments.postValue(segments.orEmpty())
+        }
+
+        /**
+         * Catch player errors to prevent the app from stopping
+         */
+        override fun onPlayerError(error: PlaybackException) {
+            super.onPlayerError(error)
+            try {
+                playerController.play()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    private val lockedOrientations = listOf(
+        ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT,
+        ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+    )
+
+    private var screenshotBitmap: Bitmap? = null
+    private val openScreenshotFile =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("image/png")) { uri ->
+            if (uri == null) {
+                screenshotBitmap = null
+                return@registerForActivityResult
+            }
+
+            context?.contentResolver?.openOutputStream(uri)?.use { outputStream ->
+                screenshotBitmap?.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
+            }
+
+            screenshotBitmap = null
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        arguments?.let {
-            videoId = it.getString(IntentData.videoId)!!.toID()
-            playlistId = it.getString(IntentData.playlistId)
-        }
-    }
 
-    override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View {
-        binding = FragmentPlayerBinding.inflate(layoutInflater, container, false)
-        exoPlayerView = binding.player
-        playerBinding = binding.player.binding
-        doubleTapOverlayBinding = binding.doubleTapOverlay.binding
-        playerGestureControlsViewBinding = binding.playerGestureControlsView.binding
+        // broadcast receiver for PiP actions
+        ContextCompat.registerReceiver(
+            requireContext(),
+            playerActionReceiver,
+            IntentFilter(PlayerHelper.getIntentActionName(requireContext())),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
 
-        // Inflate the layout for this fragment
-        return binding.root
+        fullscreenResolution = PlayerHelper.getDefaultResolution(requireContext(), true)
+        noFullscreenResolution = PlayerHelper.getDefaultResolution(requireContext(), false)
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        _binding = FragmentPlayerBinding.bind(view)
         super.onViewCreated(view, savedInstanceState)
-        context?.hideKeyboard(view)
+        SoftwareKeyboardControllerCompat(view).hide()
 
-        // clear the playing queue
-        PlayingQueue.resetToDefaults()
+        val playerData = requireArguments().parcelable<PlayerData>(IntentData.playerData)!!
+        videoId = playerData.videoId
+        playlistId = playerData.playlistId
+        channelId = playerData.channelId
+
+        // remember if playback already started once and only restart playback if that's the first run
+        val createNewSession = !requireArguments().getBoolean(IntentData.alreadyStarted)
+        requireArguments().putBoolean(IntentData.alreadyStarted, true)
 
         changeOrientationMode()
 
-        createExoPlayer()
+        playerLayoutOrientation = resources.configuration.orientation
+
         initializeTransitionLayout()
         initializeOnClickActions()
-        playVideo()
 
-        showBottomBar()
+        if (PlayerHelper.autoFullscreenEnabled && resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+            setFullscreen()
+        }
+
+        chaptersViewModel.chaptersLiveData.observe(viewLifecycleOwner) {
+            binding.player.setCurrentChapterName()
+        }
+
+        viewModel.segments.observe(viewLifecycleOwner) { segments ->
+            binding.descriptionLayout.setSegments(segments)
+            playerBinding.exoProgress.setSegments(segments)
+            playerBinding.sbToggle.isVisible = segments.isNotEmpty()
+            segments.firstOrNull { it.category == PlayerHelper.SPONSOR_HIGHLIGHT_CATEGORY }
+                ?.let {
+                    lifecycleScope.launch(Dispatchers.IO) { initializeHighlight(it) }
+                }
+        }
+
+        val localDownloadVersion = runBlocking(Dispatchers.IO) {
+            DatabaseHolder.Database.downloadDao().findById(videoId)
+        }
+
+        if (localDownloadVersion != null && createNewSession) {
+            // the dialog must also be visible when in fullscreen, thus we need to use the activity's
+            // fragment manager and not the one from [PlayerFragment]
+            val fragmentManager = requireActivity().supportFragmentManager
+
+            fragmentManager.setFragmentResultListener(
+                PlayOfflineDialog.PLAY_OFFLINE_DIALOG_REQUEST_KEY, viewLifecycleOwner
+            ) { _, bundle ->
+                if (bundle.getBoolean(IntentData.isPlayingOffline)) {
+                    // offline video playback started and thus the player fragment is no longer needed
+                    killPlayerFragment()
+                } else {
+                    attachToPlayerService(playerData, true)
+                }
+            }
+
+            val downloadInfo = DownloadHelper.extractDownloadInfoText(
+                requireContext(),
+                localDownloadVersion
+            ).toTypedArray()
+
+            PlayOfflineDialog().apply {
+                arguments = bundleOf(
+                    IntentData.videoId to videoId,
+                    IntentData.videoTitle to localDownloadVersion.download.title,
+                    IntentData.downloadInfo to downloadInfo
+                )
+            }.show(fragmentManager, null)
+        } else {
+            attachToPlayerService(playerData, createNewSession)
+        }
+
+        val onBackPressedCallback = object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (commonPlayerViewModel.isFullscreen.value == true) unsetFullscreen()
+                else {
+                    binding.playerMotionLayout.setTransitionDuration(250)
+                    binding.playerMotionLayout.transitionToEnd()
+                    mainActivity.binding.mainMotionLayout.transitionToEnd()
+                    mainActivity.requestOrientationChange()
+                }
+            }
+
+            override fun handleOnBackProgressed(backEvent: BackEventCompat) {
+                binding.playerMotionLayout.progress = backEvent.progress
+            }
+
+            override fun handleOnBackCancelled() {
+                binding.playerMotionLayout.transitionToStart()
+            }
+        }
+        setOnBackPressed(onBackPressedCallback)
+
+        commonPlayerViewModel.isMiniPlayerVisible.observe(viewLifecycleOwner) { isMiniPlayerVisible ->
+            // re-add the callback on top of the back pressed dispatcher listeners stack,
+            // so that it's the first one to become called while the full player is visible
+            if (!isMiniPlayerVisible) {
+                onBackPressedCallback.remove()
+                setOnBackPressed(onBackPressedCallback)
+            }
+
+            // if the player is minimized, the fragment behind the player should handle the event
+            onBackPressedCallback.isEnabled = isMiniPlayerVisible != true
+        }
     }
 
-    /**
-     * somehow the bottom bar is invisible on low screen resolutions, this fixes it
-     */
-    private fun showBottomBar() {
-        if (this::playerBinding.isInitialized && !binding.player.isPlayerLocked) {
-            playerBinding.exoBottomBar.visibility = View.VISIBLE
+    private fun attachToPlayerService(playerData: PlayerData, startNewSession: Boolean) {
+        BackgroundHelper.startMediaService(
+            requireContext(),
+            VideoOnlinePlayerService::class.java,
+            bundleOf(IntentData.playerData to playerData),
+            sendStartCommand = startNewSession
+        ) {
+            if (_binding == null) {
+                playerController.sendCustomCommand(
+                    AbstractPlayerService.stopServiceCommand,
+                    Bundle.EMPTY
+                )
+                playerController.release()
+                return@startMediaService
+            }
+
+            playerController = it
+            playerController.addListener(playerListener)
+            updatePlayPauseButton()
+
+            if (!startNewSession) {
+                // JSON-encode as work-around for https://github.com/androidx/media/issues/564
+                val streams: Streams? =
+                    playerController.mediaMetadata.extras?.getString(IntentData.streams)?.let { json ->
+                        JsonHelper.json.decodeFromString(json)
+                    }
+
+                // reload the streams data and playback, metadata apparently no longer exists
+                if (streams == null) {
+                    playNextVideo(videoId)
+                    return@startMediaService
+                }
+
+                this.streams = streams
+                updatePlayerView()
+            }
         }
-        Handler(Looper.getMainLooper()).postDelayed(this::showBottomBar, 100)
     }
 
     @SuppressLint("ClickableViewAccessibility")
     private fun initializeTransitionLayout() {
-        val mainActivity = activity as MainActivity
-        mainActivity.binding.container.visibility = View.VISIBLE
+        mainActivity.binding.container.isVisible = true
+        val mainMotionLayout = mainActivity.binding.mainMotionLayout
+        mainMotionLayout.progress = 0F
 
-        binding.playerMotionLayout.addTransitionListener(object : MotionLayout.TransitionListener {
-            override fun onTransitionStarted(
-                motionLayout: MotionLayout?,
-                startId: Int,
-                endId: Int
-            ) {
-            }
+        var transitionStartId = 0
+        var transitionEndId = 0
 
+        binding.playerMotionLayout.addTransitionListener(object : TransitionAdapter() {
             override fun onTransitionChange(
                 motionLayout: MotionLayout?,
                 startId: Int,
                 endId: Int,
                 progress: Float
             ) {
-                val mainMotionLayout =
-                    mainActivity.binding.mainMotionLayout
-                mainMotionLayout.progress = abs(progress)
-                exoPlayerView.hideController()
-                exoPlayerView.useController = false
-                eId = endId
-                sId = startId
+                if (_binding == null) return
+
+                if (NavBarHelper.hasTabs()) {
+                    mainMotionLayout.progress = abs(progress)
+                }
+                disableController()
+                commonPlayerViewModel.setSheetExpand(false)
+                transitionEndId = endId
+                transitionStartId = startId
             }
 
             override fun onTransitionCompleted(motionLayout: MotionLayout?, currentId: Int) {
-                println(currentId)
-                val mainMotionLayout =
-                    mainActivity.binding.mainMotionLayout
-                if (currentId == eId) {
-                    viewModel.isMiniPlayerVisible.value = true
-                    exoPlayerView.useController = false
-                    mainMotionLayout.progress = 1F
-                    (activity as MainActivity).requestOrientationChange()
-                } else if (currentId == sId) {
-                    viewModel.isMiniPlayerVisible.value = false
-                    exoPlayerView.useController = true
+                if (_binding == null) return
+
+                if (currentId == transitionStartId) {
+                    commonPlayerViewModel.isMiniPlayerVisible.value = false
+                    // re-enable captions
+                    updateCurrentSubtitle(viewModel.currentSubtitle)
+                    binding.player.useController = true
+                    commonPlayerViewModel.setSheetExpand(true)
                     mainMotionLayout.progress = 0F
                     changeOrientationMode()
+                } else if (currentId == transitionEndId) {
+                    commonPlayerViewModel.isMiniPlayerVisible.value = true
+                    // disable captions temporarily
+                    updateCurrentSubtitle(null)
+                    disableController()
+                    commonPlayerViewModel.setSheetExpand(null)
+                    binding.sbSkipBtn.isGone = true
+                    if (NavBarHelper.hasTabs()) {
+                        mainMotionLayout.progress = 1F
+                    }
+                    (activity as MainActivity).requestOrientationChange()
                 }
-            }
 
-            override fun onTransitionTrigger(
-                MotionLayout: MotionLayout?,
-                triggerId: Int,
-                positive: Boolean,
-                progress: Float
-            ) {
+                updateMaxSheetHeight()
             }
         })
 
-        binding.playerMotionLayout.progress = 1.toFloat()
+        binding.playerMotionLayout
+            .addSwipeUpListener {
+                if (this::streams.isInitialized && PlayerHelper.fullscreenGesturesEnabled) {
+                    binding.player.hideController()
+                    setFullscreen()
+                }
+            }
+            .addSwipeDownListener {
+                if (commonPlayerViewModel.isMiniPlayerVisible.value == true) {
+                    closeMiniPlayer()
+                }
+            }
+
+        binding.playerMotionLayout.progress = 1F
         binding.playerMotionLayout.transitionToStart()
 
-        // quitting miniPlayer on single click
-
-        binding.titleTextView.setOnTouchListener { view, motionEvent ->
-            view.onTouchEvent(motionEvent)
-            if (motionEvent.action == MotionEvent.ACTION_UP) view.performClick()
-            binding.root.onTouchEvent(motionEvent)
+        val activity = requireActivity()
+        if (PlayerHelper.pipEnabled) {
+            PictureInPictureCompat.setPictureInPictureParams(activity, pipParams)
         }
-        binding.titleTextView.setOnClickListener {
-            binding.playerMotionLayout.setTransitionDuration(300)
-            binding.playerMotionLayout.transitionToStart()
-        }
+    }
 
-        if (usePiP()) (activity as MainActivity).setPictureInPictureParams(getPipParams())
+    private fun closeMiniPlayer() {
+        binding
+            .playerMotionLayout
+            .animateDown(
+                duration = 300L,
+                dy = 500F,
+                onEnd = ::killPlayerFragment
+            )
     }
 
     // actions that don't depend on video information
     private fun initializeOnClickActions() {
         binding.closeImageView.setOnClickListener {
-            viewModel.isMiniPlayerVisible.value = false
-            binding.playerMotionLayout.transitionToEnd()
-            val mainActivity = activity as MainActivity
-            mainActivity.supportFragmentManager.beginTransaction()
-                .remove(this)
-                .commit()
+            killPlayerFragment()
         }
         playerBinding.closeImageButton.setOnClickListener {
-            viewModel.isFullscreen.value = false
-            binding.playerMotionLayout.transitionToEnd()
-            val mainActivity = activity as MainActivity
-            mainActivity.supportFragmentManager.beginTransaction()
-                .remove(this)
-                .commit()
+            killPlayerFragment()
         }
 
         binding.playImageView.setOnClickListener {
-            if (!exoPlayer.isPlaying) {
-                // start or go on playing
-                binding.playImageView.setImageResource(R.drawable.ic_pause)
-                if (exoPlayer.playbackState == Player.STATE_ENDED) {
-                    // restart video if finished
-                    exoPlayer.seekTo(0)
-                }
-                exoPlayer.play()
-            } else {
-                // pause the video
-                binding.playImageView.setImageResource(R.drawable.ic_play)
-                exoPlayer.pause()
-            }
+            if (::playerController.isInitialized) playerController.togglePlayPauseState()
         }
 
-        // video description and chapters toggle
-        binding.playerTitleLayout.setOnClickListener {
-            toggleDescription()
-        }
+        activity?.supportFragmentManager
+            ?.setFragmentResultListener(
+                CommentsSheet.HANDLE_LINK_REQUEST_KEY,
+                viewLifecycleOwner
+            ) { _, bundle ->
+                bundle.getString(IntentData.url)?.let { handleLink(it) }
+            }
 
         binding.commentsToggle.setOnClickListener {
-            toggleComments()
-        }
-
-        playerBinding.queueToggle.visibility = View.VISIBLE
-        playerBinding.queueToggle.setOnClickListener {
-            PlayingQueueSheet().show(childFragmentManager, null)
+            if (!this::streams.isInitialized) return@setOnClickListener
+            // set the max height to not cover the currently playing video
+            updateMaxSheetHeight()
+            commentsViewModel.videoIdLiveData.updateIfChanged(videoId)
+            CommentsSheet()
+                .apply { arguments = bundleOf(IntentData.channelAvatar to streams.uploaderAvatar) }
+                .show(childFragmentManager)
         }
 
         // FullScreen button trigger
-        // hide fullscreen button if auto rotation enabled
-        playerBinding.fullscreen.visibility =
-            if (PlayerHelper.autoRotationEnabled) View.INVISIBLE else View.VISIBLE
+        // hide fullscreen button if autorotation enabled
         playerBinding.fullscreen.setOnClickListener {
-            // hide player controller
-            exoPlayerView.hideController()
-            if (viewModel.isFullscreen.value == false) {
-                // go to fullscreen mode
-                setFullscreen()
-            } else {
-                // exit fullscreen mode
-                unsetFullscreen()
-            }
+            toggleFullscreen()
         }
 
         // share button
         binding.relPlayerShare.setOnClickListener {
             if (!this::streams.isInitialized) return@setOnClickListener
-            val shareDialog =
-                ShareDialog(
-                    videoId!!,
-                    ShareObjectType.VIDEO,
-                    ShareData(
-                        currentVideo = streams.title,
-                        currentPosition = exoPlayer.currentPosition / 1000
-                    )
+            val bundle = bundleOf(
+                IntentData.id to videoId,
+                IntentData.shareObjectType to ShareObjectType.VIDEO,
+                IntentData.shareData to ShareData(
+                    currentVideo = streams.title,
+                    currentPosition = playerController.currentPosition / 1000
                 )
-            shareDialog.show(childFragmentManager, ShareDialog::class.java.name)
+            )
+            val newShareDialog = ShareDialog()
+            newShareDialog.arguments = bundle
+            newShareDialog.show(childFragmentManager, ShareDialog::class.java.name)
+        }
+
+        binding.relPlayerExternalPlayer.setOnClickListener {
+            if (!this::streams.isInitialized || streams.hls == null) return@setOnClickListener
+
+            val context = requireContext()
+            lifecycleScope.launch {
+                val hlsStream = withContext(Dispatchers.IO) {
+                    ProxyHelper.rewriteUrlUsingProxyPreference(streams.hls!!).toUri()
+                }
+                IntentHelper.openWithExternalPlayer(
+                    context,
+                    hlsStream,
+                    streams.title,
+                    streams.uploader
+                )
+            }
         }
 
         binding.relPlayerBackground.setOnClickListener {
             // pause the current player
-            exoPlayer.pause()
+            if (::playerController.isInitialized) playerController.pause()
 
             // start the background mode
-            BackgroundHelper.playOnBackground(
-                requireContext(),
-                videoId!!,
-                exoPlayer.currentPosition,
-                playlistId
-            )
+            playOnBackground()
         }
 
-        binding.playerScrollView.viewTreeObserver
-            .addOnScrollChangedListener {
-                if (binding.playerScrollView.getChildAt(0).bottom
-                    == (binding.playerScrollView.height + binding.playerScrollView.scrollY) &&
-                    nextPage != null
-                ) {
-                    fetchNextComments()
-                }
-            }
+        binding.relPlayerPip.isVisible =
+            PictureInPictureCompat.isPictureInPictureAvailable(requireContext())
 
-        binding.commentsRecView.layoutManager = LinearLayoutManager(view?.context)
-        binding.commentsRecView.setItemViewCacheSize(20)
+        binding.relPlayerPip.setOnClickListener {
+            PictureInPictureCompat.enterPictureInPictureMode(requireActivity(), pipParams)
+        }
 
-        binding.relatedRecView.layoutManager = VideosAdapter.getLayout(requireContext())
-
-        binding.alternativeTrendingRec.layoutManager = LinearLayoutManager(
+        binding.relatedRecView.layoutManager = LinearLayoutManager(
             context,
-            LinearLayoutManager.HORIZONTAL,
+            if (resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT) {
+                LinearLayoutManager.HORIZONTAL
+            } else {
+                LinearLayoutManager.VERTICAL
+            },
             false
         )
 
-        if (!PreferenceHelper.getBoolean(PreferenceKeys.SHOW_OPEN_WITH, false)) {
-            binding.relPlayerOpen.visibility = View.GONE
-            binding.optionsLL.weightSum = 4f
-        }
-    }
+        binding.relPlayerSave.setOnClickListener {
+            if (!::streams.isInitialized) return@setOnClickListener
 
-    private fun setFullscreen() {
-        with(binding.playerMotionLayout) {
-            getConstraintSet(R.id.start).constrainHeight(R.id.player, -1)
-            enableTransition(R.id.yt_transition, false)
+            AddToPlaylistDialog().apply {
+                arguments = bundleOf(IntentData.videoInfo to streams.toStreamItem(videoId))
+            }.show(childFragmentManager, AddToPlaylistDialog::class.java.name)
         }
 
-        binding.mainContainer.isClickable = true
-        binding.linLayout.visibility = View.GONE
-        playerBinding.fullscreen.setImageResource(R.drawable.ic_fullscreen_exit)
-        playerBinding.exoTitle.visibility = View.VISIBLE
-
-        val mainActivity = activity as MainActivity
-        if (!PlayerHelper.autoRotationEnabled) {
-            // different orientations of the video are only available when auto rotation is disabled
-            val orientation = PlayerHelper.getOrientation(exoPlayer.videoSize)
-            mainActivity.requestedOrientation = orientation
+        playerBinding.skipPrev.setOnClickListener {
+            PlayingQueue.getPrev()?.let { prev -> playNextVideo(prev) }
         }
 
-        viewModel.isFullscreen.value = true
-    }
-
-    @SuppressLint("SourceLockedOrientationActivity")
-    fun unsetFullscreen() {
-        // leave fullscreen mode
-        with(binding.playerMotionLayout) {
-            getConstraintSet(R.id.start).constrainHeight(R.id.player, 0)
-            enableTransition(R.id.yt_transition, true)
+        playerBinding.skipNext.setOnClickListener {
+            PlayingQueue.getNext()?.let { next -> playNextVideo(next) }
         }
-
-        binding.mainContainer.isClickable = false
-        binding.linLayout.visibility = View.VISIBLE
-        playerBinding.fullscreen.setImageResource(R.drawable.ic_fullscreen)
-        playerBinding.exoTitle.visibility = View.INVISIBLE
-
-        if (!PlayerHelper.autoRotationEnabled) {
-            // switch back to portrait mode if auto rotation disabled
-            val mainActivity = activity as MainActivity
-            mainActivity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
-        }
-
-        viewModel.isFullscreen.value = false
-    }
-
-    private fun toggleDescription() {
-        if (binding.descLinLayout.isVisible) {
-            // hide the description and chapters
-            binding.playerDescriptionArrow.animate().rotation(0F).setDuration(250).start()
-            binding.descLinLayout.visibility = View.GONE
-        } else {
-            // show the description and chapters
-            binding.playerDescriptionArrow.animate().rotation(180F).setDuration(250).start()
-            binding.descLinLayout.visibility = View.VISIBLE
-        }
-        if (this::chapters.isInitialized && chapters.isNotEmpty()) {
-            val chapterIndex = getCurrentChapterIndex()
-            // scroll to the current chapter in the chapterRecView in the description
-            val layoutManager = binding.chaptersRecView.layoutManager as LinearLayoutManager
-            layoutManager.scrollToPositionWithOffset(chapterIndex, 0)
-            // set selected
-            val chaptersAdapter = binding.chaptersRecView.adapter as ChaptersAdapter
-            chaptersAdapter.updateSelectedPosition(chapterIndex)
-        }
-    }
-
-    private fun toggleComments() {
-        if (binding.commentsRecView.isVisible) {
-            binding.commentsRecView.visibility = View.GONE
-            binding.relatedRecView.visibility = View.VISIBLE
-        } else {
-            binding.commentsRecView.visibility = View.VISIBLE
-            binding.relatedRecView.visibility = View.GONE
-            if (binding.commentsRecView.isEmpty()) fetchComments()
-        }
-    }
-
-    override fun onStart() {
-        super.onStart()
-
-        // Assuming the video is not playing in external player when returning to app
-        videoShownInExternalPlayer = false
-    }
-
-    override fun onPause() {
-        // pauses the player if the screen is turned off
-
-        // check whether the screen is on
-        val pm = context?.getSystemService(Context.POWER_SERVICE) as PowerManager
-        val isScreenOn = pm.isInteractive
-
-        // pause player if screen off and setting enabled
-        if (
-            this::exoPlayer.isInitialized && !isScreenOn && PlayerHelper.pausePlayerOnScreenOffEnabled
-        ) {
-            exoPlayer.pause()
-        }
-        super.onPause()
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        try {
-            // disable the auto PiP mode for SDK >= 32
-            disableAutoPiP()
-
-            saveWatchPosition()
-
-            // clear the playing queue and release the player
-            PlayingQueue.resetToDefaults()
-            nowPlayingNotification.destroySelfAndPlayer()
-
-            activity?.requestedOrientation =
-                if ((activity as MainActivity).autoRotationEnabled) {
-                    ActivityInfo.SCREEN_ORIENTATION_USER
-                } else {
-                    ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
-                }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    private fun disableAutoPiP() {
-        if (SDK_INT < Build.VERSION_CODES.S) {
-            return
-        }
-        activity?.setPictureInPictureParams(
-            PictureInPictureParams.Builder().setAutoEnterEnabled(false).build()
-        )
-    }
-
-    // save the watch position if video isn't finished and option enabled
-    private fun saveWatchPosition() {
-        if (!PlayerHelper.watchPositionsEnabled) return
-        val watchPosition = WatchPosition(videoId!!, exoPlayer.currentPosition)
-        query {
-            Database.watchPositionDao().insertAll(watchPosition)
-        }
-    }
-
-    private fun checkForSegments() {
-        if (!exoPlayer.isPlaying || !PlayerHelper.sponsorBlockEnabled) return
-
-        Handler(Looper.getMainLooper()).postDelayed(this::checkForSegments, 100)
-
-        if (!::segmentData.isInitialized || segmentData.segments.isEmpty()) return
-
-        val currentPosition = exoPlayer.currentPosition
-        segmentData.segments.forEach { segment: Segment ->
-            val segmentStart = (segment.segment[0] * 1000f).toLong()
-            val segmentEnd = (segment.segment[1] * 1000f).toLong()
-
-            // show the button to manually skip the segment
-            if (currentPosition in segmentStart until segmentEnd) {
-                if (PlayerHelper.skipSegmentsManually) {
-                    binding.sbSkipBtn.visibility = View.VISIBLE
-                    binding.sbSkipBtn.setOnClickListener {
-                        exoPlayer.seekTo(segmentEnd)
-                    }
-                    return
-                }
-
-                if (PlayerHelper.sponsorBlockNotifications) {
-                    Toast
-                        .makeText(
-                            context,
-                            R.string.segment_skipped,
-                            Toast.LENGTH_SHORT
-                        ).show()
-                }
-
-                // skip the segment automatically
-                exoPlayer.seekTo(segmentEnd)
-                return
-            }
-        }
-
-        if (PlayerHelper.skipSegmentsManually) binding.sbSkipBtn.visibility = View.GONE
-    }
-
-    private fun playVideo() {
-        playerBinding.exoProgress.clearSegments()
-
-        lifecycleScope.launchWhenCreated {
-            streams = try {
-                RetrofitInstance.api.getStreams(videoId!!)
-            } catch (e: IOException) {
-                println(e)
-                Log.e(TAG(), "IOException, you might not have internet connection")
-                Toast.makeText(context, R.string.unknown_error, Toast.LENGTH_SHORT).show()
-                return@launchWhenCreated
-            } catch (e: HttpException) {
-                Log.e(TAG(), "HttpException, unexpected response")
-                Toast.makeText(context, R.string.server_error, Toast.LENGTH_SHORT).show()
-                return@launchWhenCreated
-            }
-
-            if (PlayingQueue.isEmpty()) {
-                CoroutineScope(Dispatchers.IO).launch {
-                    if (playlistId != null) {
-                        PlayingQueue.insertPlaylist(playlistId!!, streams.toStreamItem(videoId!!))
-                    } else {
-                        PlayingQueue.updateCurrent(streams.toStreamItem(videoId!!))
-                        if (PlayerHelper.autoInsertRelatedVideos) {
-                            PlayingQueue.add(
-                                *streams.relatedStreams.orEmpty().toTypedArray()
-                            )
-                        }
-                    }
-                }
-            } else {
-                PlayingQueue.updateCurrent(streams.toStreamItem(videoId!!))
-            }
-
-            PlayingQueue.setOnQueueTapListener { streamItem ->
-                streamItem.url?.toID()?.let { playNextVideo(it) }
-            }
-
-            runOnUiThread {
-                // hide the button to skip SponsorBlock segments manually
-                binding.sbSkipBtn.visibility = View.GONE
-
-                // set media sources for the player
-                setResolutionAndSubtitles()
-                prepareExoPlayerView()
-                initializePlayerView(streams)
-                if (!isLive) seekToWatchPosition()
-                exoPlayer.prepare()
-                exoPlayer.play()
-
-                if (binding.playerMotionLayout.progress != 1.0f) {
-                    // show controllers when not in picture in picture mode
-                    if (!(usePiP() && activity?.isInPictureInPictureMode!!)) {
-                        exoPlayerView.useController = true
-                    }
-                }
-                // show the player notification
-                initializePlayerNotification()
-                if (PlayerHelper.sponsorBlockEnabled) fetchSponsorBlockSegments()
-
-                // show comments if related streams are disabled or the alternative related streams layout is chosen
-                if (!PlayerHelper.relatedStreamsEnabled || PlayerHelper.alternativeVideoLayout) toggleComments()
-
-                // add the video to the watch history
-                if (PlayerHelper.watchHistoryEnabled) {
-                    DatabaseHelper.addToWatchHistory(videoId!!, streams)
-                }
-            }
-        }
-    }
-
-    /**
-     * Detect whether PiP is supported and enabled
-     */
-    private fun usePiP(): Boolean {
-        return SDK_INT >= Build.VERSION_CODES.O && PlayerHelper.pipEnabled
-    }
-
-    /**
-     * fetch the segments for SponsorBlock
-     */
-    private fun fetchSponsorBlockSegments() {
-        CoroutineScope(Dispatchers.IO).launch {
-            runCatching {
-                val categories = PlayerHelper.getSponsorBlockCategories()
-                if (categories.isEmpty()) return@runCatching
-                segmentData =
-                    RetrofitInstance.api.getSegments(
-                        videoId!!,
-                        ObjectMapper().writeValueAsString(categories)
-                    )
-                playerBinding.exoProgress.setSegments(segmentData.segments)
-            }
-        }
-    }
-
-    @SuppressLint("SetTextI18n")
-    private fun refreshLiveStatus() {
-        // switch back to normal speed when on the end of live stream
-        if (exoPlayer.duration - exoPlayer.currentPosition < 7000) {
-            exoPlayer.setPlaybackSpeed(1F)
-            playerBinding.liveSeparator.visibility = View.GONE
-            playerBinding.liveDiff.text = ""
-        } else {
-            Log.e(TAG(), "changing the time")
-            // live stream but not watching at the end/live position
-            playerBinding.liveSeparator.visibility = View.VISIBLE
-            val diffText = DateUtils.formatElapsedTime(
-                (exoPlayer.duration - exoPlayer.currentPosition) / 1000
-            )
-            playerBinding.liveDiff.text = "-$diffText"
-        }
-        // call it again
-        Handler(Looper.getMainLooper())
-            .postDelayed(this@PlayerFragment::refreshLiveStatus, 100)
-    }
-
-    // seek to saved watch position if available
-    private fun seekToWatchPosition() {
-        // support for time stamped links
-        val timeStamp: Long? = arguments?.getLong(IntentData.timeStamp)
-        if (timeStamp != null && timeStamp != 0L) {
-            exoPlayer.seekTo(timeStamp * 1000)
-            return
-        }
-        // browse the watch positions
-        val position = try {
-            awaitQuery {
-                Database.watchPositionDao().findById(videoId!!)?.position
-            }
-        } catch (e: Exception) {
-            return
-        }
-        // position is almost the end of the video => don't seek, start from beginning
-        if (position != null && position < streams.duration!! * 1000 * 0.9) {
-            exoPlayer.seekTo(
-                position
-            )
-        }
-    }
-
-    // used for autoplay and skipping to next video
-    private fun playNextVideo(nextId: String? = null) {
-        val nextVideoId = nextId ?: PlayingQueue.getNext()
-        // by making sure that the next and the current video aren't the same
-        saveWatchPosition()
-
-        // save the id of the next stream as videoId and load the next video
-        if (nextVideoId != null) {
-            videoId = nextVideoId
-
-            // forces the comments to reload for the new video
-            binding.commentsRecView.adapter = null
-            playVideo()
-        }
-    }
-
-    private fun prepareExoPlayerView() {
-        exoPlayerView.apply {
-            setShowSubtitleButton(true)
-            setShowNextButton(false)
-            setShowPreviousButton(false)
-            // controllerShowTimeoutMs = 1500
-            controllerHideOnTouch = true
-            useController = false
-            player = exoPlayer
-        }
-
-        playerBinding.exoProgress.setPlayer(exoPlayer)
-
-        applyCaptionStyle()
-    }
-
-    private fun applyCaptionStyle() {
-        val captionStyle = PlayerHelper.getCaptionStyle(requireContext())
-        exoPlayerView.subtitleView?.apply {
-            setApplyEmbeddedFontSizes(false)
-            setFixedTextSize(TEXT_SIZE_TYPE_ABSOLUTE, 18F)
-            if (!PlayerHelper.useSystemCaptionStyle) return
-            setApplyEmbeddedStyles(captionStyle == CaptionStyleCompat.DEFAULT)
-            setStyle(captionStyle)
-        }
-    }
-
-    private fun handleLiveVideo() {
-        playerBinding.exoTime.visibility = View.GONE
-        playerBinding.liveLL.visibility = View.VISIBLE
-        playerBinding.liveIndicator.setOnClickListener {
-            exoPlayer.seekTo(exoPlayer.duration - 1000)
-        }
-        refreshLiveStatus()
-    }
-
-    @SuppressLint("SetTextI18n")
-    private fun initializePlayerView(response: Streams) {
-        // initialize the player view actions
-        binding.player.initialize(
-            this,
-            doubleTapOverlayBinding,
-            playerGestureControlsViewBinding,
-            trackSelector
-        )
-
-        binding.apply {
-            playerViewsInfo.text =
-                context?.getString(R.string.views, response.views.formatShort()) +
-                if (!isLive) TextUtils.SEPARATOR + response.uploadDate else ""
-
-            textLike.text = response.likes.formatShort()
-            textDislike.text = response.dislikes.formatShort()
-            ImageHelper.loadImage(response.uploaderAvatar, binding.playerChannelImage)
-            playerChannelName.text = response.uploader
-
-            titleTextView.text = response.title
-
-            playerTitle.text = response.title
-            playerDescription.text = response.description
-
-            playerChannelSubCount.text = context?.getString(
-                R.string.subscribers,
-                response.uploaderSubscriberCount?.formatShort()
-            )
-        }
-
-        // duration that's not greater than 0 indicates that the video is live
-        if (response.duration!! <= 0) {
-            isLive = true
-            handleLiveVideo()
-        }
-
-        playerBinding.exoTitle.text = response.title
-
-        // init the chapters recyclerview
-        if (response.chapters != null) {
-            chapters = response.chapters
-            initializeChapters()
-        }
-
-        // Listener for play and pause icon change
-        exoPlayer.addListener(object : Player.Listener {
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
-                if (isPlaying && PlayerHelper.sponsorBlockEnabled) {
-                    Handler(Looper.getMainLooper()).postDelayed(
-                        this@PlayerFragment::checkForSegments,
-                        100
-                    )
-                }
-            }
-
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                exoPlayerView.keepScreenOn = !(
-                    playbackState == Player.STATE_IDLE ||
-                        playbackState == Player.STATE_ENDED
-                    )
-
-                // check if video has ended, next video is available and autoplay is enabled.
-                @Suppress("DEPRECATION")
-                if (
-                    playbackState == Player.STATE_ENDED &&
-                    !transitioning &&
-                    binding.player.autoplayEnabled
-                ) {
-                    transitioning = true
-                    // check whether autoplay is enabled
-                    playNextVideo()
-                }
-
-                when (playbackState) {
-                    Player.STATE_READY -> {
-                        // media actually playing
-                        transitioning = false
-                        binding.playImageView.setImageResource(R.drawable.ic_pause)
-                    }
-                    Player.STATE_ENDED -> {
-                        // video has finished
-                        binding.playImageView.setImageResource(R.drawable.ic_restart)
-                    }
-                    else -> {
-                        // player in any other state
-                        binding.playImageView.setImageResource(R.drawable.ic_play)
-                    }
-                }
-
-                // save the watch position when paused
-                if (playbackState == PlaybackState.STATE_PAUSED) {
-                    val watchPosition = WatchPosition(videoId!!, exoPlayer.currentPosition)
-                    query {
-                        Database.watchPositionDao().insertAll(watchPosition)
-                    }
-                    disableAutoPiP()
-                }
-
-                // listen for the stop button in the notification
-                if (playbackState == PlaybackState.STATE_STOPPED && usePiP()) {
-                    // finish PiP by finishing the activity
-                    if (activity?.isInPictureInPictureMode!!) activity?.finish()
-                }
-                super.onPlaybackStateChanged(playbackState)
-            }
-
-            /**
-             * Catch player errors to prevent the app from stopping
-             */
-            override fun onPlayerError(error: PlaybackException) {
-                super.onPlayerError(error)
-                try {
-                    exoPlayer.play()
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-        })
 
         binding.relPlayerDownload.setOnClickListener {
-            if (response.duration <= 0) {
-                Toast.makeText(context, R.string.cannotDownload, Toast.LENGTH_SHORT).show()
-            } else if (!DownloadService.IS_DOWNLOAD_RUNNING) {
-                val newFragment = DownloadDialog(videoId!!)
-                newFragment.show(childFragmentManager, DownloadDialog::class.java.name)
-            } else {
-                Toast.makeText(context, R.string.dlisinprogress, Toast.LENGTH_SHORT)
-                    .show()
-            }
+            if (!this::streams.isInitialized) return@setOnClickListener
+
+            DownloadHelper.startDownloadDialog(requireContext(), childFragmentManager, videoId)
         }
 
-        if (response.hls != null) {
-            binding.relPlayerOpen.setOnClickListener {
-                // Do not start picture in picture when playing in external player
-                videoShownInExternalPlayer = true
+        binding.relPlayerScreenshot.setOnClickListener {
+            if (!this::streams.isInitialized) return@setOnClickListener
+            val surfaceView =
+                binding.player.videoSurfaceView as? SurfaceView ?: return@setOnClickListener
 
-                // start an intent with video as mimetype using the hls stream
-                val uri: Uri = Uri.parse(response.hls)
-                val intent = Intent()
+            val bmp = Bitmap.createBitmap(
+                surfaceView.width,
+                surfaceView.height,
+                Bitmap.Config.ARGB_8888
+            )
 
-                intent.action = Intent.ACTION_VIEW
-                intent.setDataAndType(uri, "video/*")
-                intent.putExtra(Intent.EXTRA_TITLE, streams.title)
-                intent.putExtra("title", streams.title)
-                intent.putExtra("artist", streams.uploader)
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-
-                try {
-                    startActivity(intent)
-                } catch (e: Exception) {
-                    Toast.makeText(context, R.string.no_player_found, Toast.LENGTH_SHORT).show()
-                }
-            }
+            PixelCopy.request(surfaceView, bmp, { _ ->
+                screenshotBitmap = bmp
+                val currentPosition =
+                    playerController.currentPosition.toFloat() / 1000
+                openScreenshotFile.launch("${streams.title}-${currentPosition}.png")
+            }, Handler(Looper.getMainLooper()))
         }
-        initializeRelatedVideos(response.relatedStreams)
-        // set video description
-        val description = response.description!!
-        binding.playerDescription.text =
-            // detect whether the description is html formatted
-            if (description.contains("<") && description.contains(">")) {
-                if (SDK_INT >= Build.VERSION_CODES.N) {
-                    Html.fromHtml(description, Html.FROM_HTML_MODE_COMPACT)
-                        .trim()
-                } else {
-                    @Suppress("DEPRECATION")
-                    Html.fromHtml(description).trim()
-                }
-            } else {
-                description
-            }
 
         binding.playerChannel.setOnClickListener {
+            if (!this::streams.isInitialized) return@setOnClickListener
+
             val activity = view?.context as MainActivity
-            val bundle = bundleOf(IntentData.channelId to response.uploaderUrl)
-            activity.navController.navigate(R.id.channelFragment, bundle)
+            NavigationHelper.navigateChannel(requireContext(), streams.uploaderUrl)
             activity.binding.mainMotionLayout.transitionToEnd()
             binding.playerMotionLayout.transitionToEnd()
         }
 
-        // update the subscribed state
-        binding.playerSubscribe.setupSubscriptionButton(
-            streams.uploaderUrl?.toID(),
-            streams.uploader
+        binding.descriptionLayout.handleLink = this::handleLink
+    }
+
+    private fun updateMaxSheetHeight() {
+        val maxHeight = binding.root.height - binding.player.height
+        commonPlayerViewModel.maxSheetHeightPx = maxHeight
+        chaptersViewModel.maxSheetHeightPx = maxHeight
+    }
+
+    private fun playOnBackground() {
+        val currentPosition =
+            if (::playerController.isInitialized) playerController.currentPosition else 0
+
+        BackgroundHelper.playOnBackground(
+            requireContext(),
+            videoId,
+            currentPosition,
+            playlistId,
+            channelId,
+            keepQueue = true,
+            keepVideoPlayerAlive = true
         )
-
-        binding.relPlayerSave.setOnClickListener {
-            AddToPlaylistDialog(videoId!!).show(
-                childFragmentManager,
-                AddToPlaylistDialog::class.java.name
-            )
-        }
-
-        // next and previous buttons
-        if (PlayerHelper.skipButtonsEnabled) {
-            playerBinding.skipPrev.setInvisible(!PlayingQueue.hasPrev())
-            playerBinding.skipNext.setInvisible(!PlayingQueue.hasNext())
-        }
-
-        playerBinding.skipPrev.setOnClickListener {
-            playNextVideo(PlayingQueue.getPrev())
-        }
-
-        playerBinding.skipNext.setOnClickListener {
-            playNextVideo()
-        }
+        killPlayerFragment()
+        NavigationHelper.openAudioPlayerFragment(requireContext())
     }
 
-    private fun initializeRelatedVideos(relatedStreams: List<StreamItem>?) {
-        if (!PlayerHelper.relatedStreamsEnabled) return
+    private fun updateFullscreenOrientation() {
+        if (PlayerHelper.autoFullscreenEnabled || !this::streams.isInitialized) return
 
-        if (PlayerHelper.alternativeVideoLayout) {
-            binding.alternativeTrendingRec.adapter = VideosAdapter(
-                relatedStreams.orEmpty().toMutableList(),
-                forceMode = VideosAdapter.Companion.ForceMode.RELATED
-            )
-        } else {
-            binding.relatedRecView.adapter = VideosAdapter(
-                relatedStreams.orEmpty().toMutableList()
-            )
-        }
+        val height = streams.videoStreams.firstOrNull()?.height
+            ?: playerController.videoSize.height
+        val width =
+            streams.videoStreams.firstOrNull()?.width ?: playerController.videoSize.width
+
+        mainActivity.requestedOrientation = PlayerHelper.getOrientation(width, height)
     }
 
-    private fun initializeChapters() {
-        if (chapters.isEmpty()) {
-            binding.chaptersRecView.visibility = View.GONE
-            playerBinding.chapterLL.visibility = View.INVISIBLE
-            return
-        }
-        // show the chapter layouts
-        binding.chaptersRecView.visibility = View.VISIBLE
-        playerBinding.chapterLL.visibility = View.VISIBLE
+    private fun setFullscreen() {
+        // set status bar icon color to white
+        windowInsetsControllerCompat.isAppearanceLightStatusBars = false
 
-        // enable chapters in the video description
-        binding.chaptersRecView.layoutManager =
-            LinearLayoutManager(
-                context,
-                LinearLayoutManager.HORIZONTAL,
-                false
-            )
-        binding.chaptersRecView.adapter = ChaptersAdapter(chapters, exoPlayer)
+        commonPlayerViewModel.isFullscreen.value = true
 
-        // enable the chapters dialog in the player
-        val titles = chapters.map { chapter ->
-            "${chapter.title} (${chapter.start?.let { DateUtils.formatElapsedTime(it) }})"
-        }
-        playerBinding.chapterLL.setOnClickListener {
-            if (viewModel.isFullscreen.value!!) {
-                MaterialAlertDialogBuilder(requireContext())
-                    .setTitle(R.string.chapters)
-                    .setItems(titles.toTypedArray()) { _, index ->
-                        exoPlayer.seekTo(
-                            chapters[index].start!! * 1000
-                        )
-                    }
-                    .show()
-            } else {
-                toggleDescription()
-            }
-        }
-        setCurrentChapterName()
+        updateFullscreenOrientation()
+
+        commonPlayerViewModel.setSheetExpand(null)
+
+        updateResolution(true)
+        openOrCloseFullscreenDialog(true)
+
+        binding.player.updateMarginsByFullscreenMode()
     }
 
-    // set the name of the video chapter in the exoPlayerView
-    private fun setCurrentChapterName() {
-        // return if chapters are empty to avoid crashes
-        if (chapters.isEmpty()) return
+    @SuppressLint("SourceLockedOrientationActivity")
+    fun unsetFullscreen() {
+        if (activity == null || _binding == null) return
 
-        // call the function again in 100ms
-        exoPlayerView.postDelayed(this::setCurrentChapterName, 100)
+        commonPlayerViewModel.isFullscreen.value = false
 
-        val chapterIndex = getCurrentChapterIndex()
-        val chapterName = chapters[chapterIndex].title?.trim()
-
-        // change the chapter name textView text to the chapterName
-        if (chapterName != playerBinding.chapterName.text) {
-            playerBinding.chapterName.text = chapterName
-            // update the selected item
-            val chaptersAdapter = binding.chaptersRecView.adapter as ChaptersAdapter
-            chaptersAdapter.updateSelectedPosition(chapterIndex)
+        if (!PlayerHelper.autoFullscreenEnabled) {
+            mainActivity.requestedOrientation = mainActivity.screenOrientationPref
         }
+
+        openOrCloseFullscreenDialog(false)
+        updateResolution(false)
+
+        binding.player.updateMarginsByFullscreenMode()
+
+        // set status bar icon color back to theme color after fullscreen dialog closed!
+        windowInsetsControllerCompat.isAppearanceLightStatusBars =
+            !ThemeHelper.isDarkMode(requireContext())
     }
 
     /**
-     * Get the name of the currently played chapter
+     * Enable or disable fullscreen depending on the current state
      */
-    private fun getCurrentChapterIndex(): Int {
-        val currentPosition = exoPlayer.currentPosition
-        var chapterIndex = 0
+    fun toggleFullscreen() {
+        binding.player.hideController()
 
-        chapters.forEachIndexed { index, chapter ->
-            // check whether the chapter start is greater than the current player position
-            if (currentPosition >= chapter.start!! * 1000) {
-                // save chapter title if found
-                chapterIndex = index
-            }
+        if (commonPlayerViewModel.isFullscreen.value == false) {
+            // go to fullscreen mode
+            setFullscreen()
+        } else {
+            // exit fullscreen mode
+            unsetFullscreen()
         }
-        return chapterIndex
     }
 
-    private fun setMediaSource(uri: Uri, mimeType: String) {
-        val mediaItem: MediaItem = MediaItem.Builder()
-            .setUri(uri)
-            .setMimeType(mimeType)
-            .setSubtitleConfigurations(subtitles)
-            .build()
-        exoPlayer.setMediaItem(mediaItem)
-    }
+    private fun openOrCloseFullscreenDialog(open: Boolean) {
+        val playerView = binding.player
+        (playerView.parent as ViewGroup).removeView(playerView)
 
-    private fun String?.qualityToInt(): Int {
-        this ?: return 0
-        return this.toString().split("p").first().toInt()
-    }
-
-    private fun getAvailableResolutions(): List<VideoResolution> {
-        if (!this::streams.isInitialized) return listOf()
-
-        val resolutions = mutableListOf<VideoResolution>()
-
-        val videoStreams = try {
-            // attempt to sort the qualities, catch if there was an error ih parsing
-            streams.videoStreams?.sortedBy {
-                it.quality?.toLong() ?: 0L
-            }?.reversed()
-                .orEmpty()
-        } catch (_: Exception) {
-            streams.videoStreams.orEmpty()
-        }
-
-        for (vid in videoStreams) {
-            if (resolutions.any {
-                it.resolution == vid.quality.qualityToInt()
-            } || vid.url == null
-            ) {
-                continue
-            }
-
-            runCatching {
-                resolutions.add(
-                    VideoResolution(
-                        name = "${vid.quality.qualityToInt()}p",
-                        resolution = vid.quality.qualityToInt()
-                    )
-                )
-            }
-
-            /*
-            // append quality to list if it has the preferred format (e.g. MPEG)
-            val preferredMimeType = "video/${PlayerHelper.videoFormatPreference}"
-            if (vid.url != null && vid.mimeType == preferredMimeType)
-             */
-        }
-
-        if (resolutions.isEmpty()) {
-            return listOf(
-                VideoResolution(getString(R.string.hls), adaptiveSourceUrl = streams.hls)
+        if (open) {
+            fullscreenDialog.addContentView(
+                binding.player,
+                LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
             )
+            fullscreenDialog.show()
+            playerView.currentWindow = fullscreenDialog.window
+        } else {
+            binding.playerMotionLayout.addView(playerView)
+            playerView.currentWindow = null
+            fullscreenDialog.dismiss()
         }
 
-        resolutions.add(0, VideoResolution(getString(R.string.auto_quality), null))
-
-        return resolutions
+        WindowHelper.toggleFullscreen(fullscreenDialog.window!!, open)
     }
 
-    private fun setResolutionAndSubtitles() {
-        // create a list of subtitles
-        subtitles = mutableListOf()
-        val subtitlesNamesList = mutableListOf(context?.getString(R.string.none)!!)
-        val subtitleCodesList = mutableListOf("")
-        streams.subtitles.orEmpty().forEach {
-            subtitles.add(
-                SubtitleConfiguration.Builder(it.url!!.toUri())
-                    .setMimeType(it.mimeType!!) // The correct MIME type (required).
-                    .setLanguage(it.code) // The subtitle language (optional).
-                    .build()
-            )
-            subtitlesNamesList += it.name!!
-            subtitleCodesList += it.code!!
+    override fun onPause() {
+        // check whether the screen is on
+        val isInteractive = requireContext().getSystemService<PowerManager>()!!.isInteractive
+
+        // disable video stream since it's not needed when screen off
+        if (!isInteractive) {
+            // disable the autoplay countdown while the screen is off
+            setAutoPlayCountdownEnabled(false)
+
+            // disable loading the video track while screen is off
+            setVideoTrackTypeDisabled(true)
         }
+
+        // pause player if screen off and setting enabled
+        if (!isInteractive && PlayerHelper.pausePlayerOnScreenOffEnabled) {
+            playerController.pause()
+        }
+
+        super.onPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+
+        if (closedVideo) {
+            closedVideo = false
+        }
+
+        // re-enable the autoplay countdown
+        setAutoPlayCountdownEnabled(PlayerHelper.autoPlayCountdown)
+
+        // re-enable and load video stream
+        setVideoTrackTypeDisabled(false)
+    }
+
+    private fun setAutoPlayCountdownEnabled(enabled: Boolean) {
+        if (!::playerController.isInitialized) return
+
+        this.autoPlayCountdownEnabled = enabled
+
+        playerController.sendCustomCommand(
+            AbstractPlayerService.runPlayerActionCommand, bundleOf(
+                PlayerCommand.SET_AUTOPLAY_COUNTDOWN_ENABLED.name to enabled
+            )
+        )
+    }
+
+    private fun setVideoTrackTypeDisabled(disabled: Boolean) {
+        if (!::playerController.isInitialized) return
+
+        playerController.sendCustomCommand(
+            AbstractPlayerService.runPlayerActionCommand, bundleOf(
+                PlayerCommand.SET_VIDEO_TRACK_TYPE_DISABLED.name to disabled
+            )
+        )
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+
+        handler.removeCallbacksAndMessages(null)
+
+        if (::playerController.isInitialized) {
+            playerController.removeListener(playerListener)
+            playerController.pause()
+
+            playerController.sendCustomCommand(
+                AbstractPlayerService.stopServiceCommand,
+                Bundle.EMPTY
+            )
+            playerController.release()
+        }
+
+        if (PlayerHelper.pipEnabled) {
+            // disable the auto PiP mode for SDK >= 32
+            PictureInPictureCompat
+                .setPictureInPictureParams(requireActivity(), pipParams)
+        }
+
+        runCatching {
+            if (fullscreenDialog.isShowing) fullscreenDialog.dismiss()
+        }
+
+        runCatching {
+            // unregister the receiver for player actions
+            context?.unregisterReceiver(playerActionReceiver)
+        }
+
+        // restore the orientation that's used by the main activity
+        (context as MainActivity).requestOrientationChange()
+
+        _binding = null
+    }
+
+    /**
+     * Manually kill the player fragment - call instead of using onDestroy directly
+     */
+    private fun killPlayerFragment() {
+        binding.playerMotionLayout.transitionToEnd()
+
+        commonPlayerViewModel.isMiniPlayerVisible.value = false
+
+        if (commonPlayerViewModel.isFullscreen.value == true) {
+            // wait for the mini player transition to finish
+            // that guarantees that the navigation bar is shown properly
+            // before we kill the player fragment
+            binding.playerMotionLayout.addTransitionListener(object : TransitionAdapter() {
+                override fun onTransitionCompleted(motionLayout: MotionLayout?, currentId: Int) {
+                    super.onTransitionCompleted(motionLayout, currentId)
+
+                    mainActivity.supportFragmentManager.commit {
+                        remove(this@PlayerFragment)
+                    }
+                }
+            })
+
+            unsetFullscreen()
+        } else {
+            mainActivity.supportFragmentManager.commit {
+                remove(this@PlayerFragment)
+            }
+        }
+    }
+
+    private fun checkForSegments() {
+        if (!playerController.isPlaying || !PlayerHelper.sponsorBlockEnabled) return
+
+        handler.postDelayed(this::checkForSegments, 100)
+        if (!PlayerHelper.sponsorBlockEnabled || !viewModel.segments.value.isNullOrEmpty()) return
+
+        playerController.checkForSegments(
+            requireContext(),
+            viewModel.segments.value.orEmpty(),
+            viewModel.sponsorBlockConfig,
+            // skipping is done by player service
+            skipAutomaticallyIfEnabled = false
+        )
+            ?.let { segment ->
+                if (commonPlayerViewModel.isMiniPlayerVisible.value == true) return@let
+
+                binding.sbSkipBtn.isVisible = true
+                binding.sbSkipBtn.setOnClickListener {
+                    playerController.seekTo((segment.segmentStartAndEnd.second * 1000f).toLong())
+                    segment.skipped = true
+                }
+                return
+            }
+
+        if (!playerController.isInSegment(viewModel.segments.value.orEmpty())) binding.sbSkipBtn.isGone =
+            true
+    }
+
+    private fun setPlayerDefaults() {
+        // reset the player view
+        playerBinding.exoProgress.clearSegments()
+        playerBinding.sbToggle.isGone = true
+
+        // reset the comments to become reloaded later
+        commentsViewModel.reset()
+
+        // hide the button to skip SponsorBlock segments manually
+        binding.sbSkipBtn.isGone = true
+
+        // use the video's default audio track when starting playback
+        playerController.sendCustomCommand(
+            AbstractPlayerService.runPlayerActionCommand, bundleOf(
+                PlayerCommand.SET_AUDIO_ROLE_FLAGS.name to C.ROLE_FLAG_MAIN
+            )
+        )
+
+        setAutoPlayCountdownEnabled(PlayerHelper.autoPlayCountdown)
 
         // set the default subtitle if available
-        val newParams = trackSelector.buildUponParameters()
-        if (PlayerHelper.defaultSubtitleCode != "" && subtitleCodesList.contains(PlayerHelper.defaultSubtitleCode)) {
-            newParams
-                .setPreferredTextLanguage(PlayerHelper.defaultSubtitleCode)
-                .setPreferredTextRoleFlags(C.ROLE_FLAG_CAPTION)
-        } else {
-            newParams.setPreferredTextLanguage(null)
-        }
-
-        trackSelector.setParameters(newParams)
+        updateCurrentSubtitle(viewModel.currentSubtitle)
 
         // set media source and resolution in the beginning
-        setStreamSource(
-            streams
-        )
-    }
+        updateResolution(commonPlayerViewModel.isFullscreen.value == true)
 
-    private fun setPlayerResolution(resolution: Int?) {
-        val params = trackSelector.buildUponParameters()
-        when (resolution) {
-            null -> params.setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE).setMinVideoSize(0, 0)
-            else -> params.setMaxVideoSize(Int.MAX_VALUE, resolution).setMinVideoSize(Int.MIN_VALUE, resolution)
+        if (streams.category == Streams.CATEGORY_MUSIC) {
+            playerController.setPlaybackSpeed(1f)
         }
-        trackSelector.setParameters(params)
-    }
-
-    private fun setStreamSource(streams: Streams) {
-        val defaultResolution = PlayerHelper.getDefaultResolution(requireContext()).replace("p", "")
-        if (defaultResolution != "") setPlayerResolution(defaultResolution.toInt())
-
-        if (!PreferenceHelper.getBoolean(PreferenceKeys.USE_HLS_OVER_DASH, false) &&
-            streams.videoStreams.orEmpty().isNotEmpty()
-        ) {
-            val uri = let {
-                streams.dash?.toUri()
-
-                val manifest = DashHelper.createManifest(streams)
-
-                // encode to base64
-                val encoded = Base64.encodeToString(manifest.toByteArray(), Base64.DEFAULT)
-
-                "data:application/dash+xml;charset=utf-8;base64,$encoded".toUri()
-            }
-
-            this.setMediaSource(uri, MimeTypes.APPLICATION_MPD)
-        } else if (streams.hls != null) {
-            setMediaSource(streams.hls.toUri(), MimeTypes.APPLICATION_M3U8)
-        } else {
-            Toast.makeText(context, R.string.unknown_error, Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private fun createExoPlayer() {
-        val cronetEngine: CronetEngine = CronetHelper.getCronetEngine()
-        val cronetDataSourceFactory: CronetDataSource.Factory =
-            CronetDataSource.Factory(cronetEngine, Executors.newCachedThreadPool())
-
-        val dataSourceFactory = DefaultDataSource.Factory(
-            requireContext(),
-            cronetDataSourceFactory
-        )
-
-        // handles the audio focus
-        val audioAttributes = AudioAttributes.Builder()
-            .setUsage(C.USAGE_MEDIA)
-            .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-            .build()
-
-        // handles the duration of media to retain in the buffer prior to the current playback position (for fast backward seeking)
-        val loadControl = DefaultLoadControl.Builder()
-            // cache the last three minutes
-            .setBackBuffer(1000 * 60 * 3, true)
-            .setBufferDurationsMs(
-                1000 * 10, // exo default is 50s
-                PlayerHelper.bufferingGoal,
-                DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
-                DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS
-            )
-            .build()
-
-        // control for the track sources like subtitles and audio source
-        trackSelector = DefaultTrackSelector(requireContext())
-
-        val params = trackSelector.buildUponParameters().setPreferredAudioLanguage(
-            Locale.getDefault().language.lowercase().substring(0, 2)
-        )
-        trackSelector.setParameters(params)
-
-        exoPlayer = ExoPlayer.Builder(requireContext())
-            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
-            .setLoadControl(loadControl)
-            .setTrackSelector(trackSelector)
-            .setHandleAudioBecomingNoisy(true)
-            .build()
-
-        exoPlayer.setAudioAttributes(audioAttributes, true)
     }
 
     /**
-     * show the [NowPlayingNotification] for the current video
+     * Manually skip to another video.
      */
-    private fun initializePlayerNotification() {
-        if (!this::nowPlayingNotification.isInitialized) {
-            nowPlayingNotification = NowPlayingNotification(requireContext(), exoPlayer, false)
-        }
-        nowPlayingNotification.updatePlayerNotification(videoId!!, streams)
+    fun playNextVideo(nextId: String) {
+        playerController.sendCustomCommand(
+            AbstractPlayerService.runPlayerActionCommand,
+            bundleOf(PlayerCommand.PLAY_VIDEO_BY_ID.name to nextId)
+        )
+
+        // close comment bottom sheet if opened for next video
+        activity?.supportFragmentManager?.fragments?.filterIsInstance<CommentsSheet>()
+            ?.firstOrNull()?.dismiss()
     }
 
-    private fun fetchComments() {
-        lifecycleScope.launchWhenCreated {
-            val commentsResponse = try {
-                RetrofitInstance.api.getComments(videoId!!)
-            } catch (e: IOException) {
-                println(e)
-                Log.e(TAG(), "IOException, you might not have internet connection")
-                Toast.makeText(context, R.string.unknown_error, Toast.LENGTH_SHORT).show()
-                return@launchWhenCreated
-            } catch (e: HttpException) {
-                Log.e(TAG(), "HttpException, unexpected response")
-                return@launchWhenCreated
+    @SuppressLint("SetTextI18n")
+    private fun updatePlayerView() {
+        if (PreferenceHelper.getBoolean(PreferenceKeys.AUTO_FULLSCREEN_SHORTS, false) &&
+            isShort && binding.playerMotionLayout.progress == 0f
+        ) {
+            setFullscreen()
+        }
+
+        binding.player.apply {
+            useController = false
+            player = playerController
+        }
+
+        // initialize the player view actions
+        binding.player.initialize(
+            doubleTapOverlayBinding,
+            playerGestureControlsViewBinding,
+            chaptersViewModel
+        )
+        binding.player.initPlayerOptions(
+            viewModel,
+            commonPlayerViewModel,
+            viewLifecycleOwner,
+            this
+        )
+
+        if (binding.playerMotionLayout.progress != 1.0f) {
+            // show controllers when not in picture in picture mode
+            val inPipMode = PlayerHelper.pipEnabled &&
+                    PictureInPictureCompat.isInPictureInPictureMode(requireActivity())
+            if (!inPipMode) {
+                binding.player.useController = true
             }
-            commentsAdapter = CommentsAdapter(videoId!!, commentsResponse.comments)
-            binding.commentsRecView.adapter = commentsAdapter
-            nextPage = commentsResponse.nextpage
-            isLoading = false
         }
-    }
 
-    private fun fetchNextComments() {
-        lifecycleScope.launchWhenCreated {
-            if (!isLoading) {
-                isLoading = true
-                val response = try {
-                    RetrofitInstance.api.getCommentsNextPage(videoId!!, nextPage!!)
-                } catch (e: IOException) {
-                    println(e)
-                    Log.e(TAG(), "IOException, you might not have internet connection")
-                    return@launchWhenCreated
-                } catch (e: HttpException) {
-                    Log.e(TAG(), "HttpException, unexpected response," + e.response())
-                    return@launchWhenCreated
+        viewModel.isOrientationChangeInProgress = false
+
+        binding.descriptionLayout.setStreams(streams)
+
+        binding.apply {
+            ImageHelper.loadImage(streams.uploaderAvatar, binding.playerChannelImage, true)
+            playerChannelName.text = streams.uploader
+            titleTextView.text = streams.title
+            playerChannelSubCount.text = context?.getString(
+                R.string.subscribers,
+                streams.uploaderSubscriberCount.formatShort()
+            )
+            player.isLive = streams.isLive
+            relPlayerDownload.isVisible = !streams.isLive
+        }
+        playerBinding.exoTitle.text = streams.title
+
+        // init the chapters recyclerview
+        chaptersViewModel.chaptersLiveData.postValue(streams.chapters)
+
+        if (PlayerHelper.relatedStreamsEnabled) {
+            val relatedLayoutManager = binding.relatedRecView.layoutManager as LinearLayoutManager
+            binding.relatedRecView.adapter = VideosAdapter(
+                forceMode = if (relatedLayoutManager.orientation == LinearLayoutManager.HORIZONTAL) {
+                    VideosAdapter.Companion.LayoutMode.RELATED_COLUMN
+                } else {
+                    VideosAdapter.Companion.LayoutMode.TRENDING_ROW
                 }
-                nextPage = response.nextpage
-                commentsAdapter?.updateItems(response.comments)
-                isLoading = false
+            ).also { adapter ->
+                adapter.submitList(streams.relatedStreams.filter { !it.title.isNullOrBlank() })
             }
+        }
+
+        // update the subscribed state
+        binding.playerSubscribe.setupSubscriptionButton(
+            this.streams.uploaderUrl.toID(),
+            this.streams.uploader
+        )
+
+        // seekbar preview setup
+        playerBinding.seekbarPreview.isGone = true
+        seekBarPreviewListener?.let { playerBinding.exoProgress.removeListener(it) }
+        seekBarPreviewListener = createSeekbarPreviewListener().also {
+            playerBinding.exoProgress.addSeekBarListener(it)
+        }
+    }
+
+    private fun showAutoPlayCountdown() {
+        if (!PlayingQueue.hasNext()) return
+
+        disableController()
+        binding.autoplayCountdown.setHideSelfListener {
+            // could fail if the video already got closed before
+            runCatching {
+                binding.autoplayCountdown.isGone = true
+                binding.player.useController = true
+            }
+        }
+        binding.autoplayCountdown.startCountdown {
+            PlayingQueue.getNext()?.let { playNextVideo(it) }
+        }
+    }
+
+    /**
+     * Handle a link clicked in the description
+     */
+    private fun handleLink(link: String) {
+        // get video id if the link is a valid youtube video link
+        val uri = link.toUri()
+        val videoId = TextUtils.getVideoIdFromUri(uri)
+
+        if (videoId.isNullOrEmpty()) {
+            // not a YouTube video link, thus handle normally
+            val intent = Intent(Intent.ACTION_VIEW, uri)
+
+            // start PiP mode if enabled
+            onUserLeaveHint()
+            startActivity(intent)
+
+            return
+        }
+
+        // check if the video is the current video and has a valid time
+        if (videoId == this.videoId) {
+            // try finding the time stamp of the url and seek to it if found
+            uri.getQueryParameter("t")?.toTimeInSeconds()?.let {
+                playerController.seekTo(it * 1000)
+            }
+        } else {
+            // YouTube video link without time or not the current video, thus load in player
+            playNextVideo(videoId)
+        }
+    }
+
+    private fun updatePlayPauseButton() {
+        val playPauseAction = PlayerHelper.getPlayPauseActionIcon(playerController)
+        binding.playImageView.setImageResource(playPauseAction)
+    }
+
+    private suspend fun initializeHighlight(highlight: Segment) {
+        val frameReceiver = OnlineTimeFrameReceiver(requireContext(), streams.previewFrames)
+        val highlightStart = highlight.segmentStartAndEnd.first.toLong()
+        val frame = withContext(Dispatchers.IO) {
+            frameReceiver.getFrameAtTime(highlightStart * 1000)
+        }
+        val highlightChapter = ChapterSegment(
+            title = getString(R.string.chapters_videoHighlight),
+            start = highlightStart,
+            highlightDrawable = frame?.toDrawable(requireContext().resources)
+        )
+        chaptersViewModel.chaptersLiveData.postValue(
+            chaptersViewModel.chapters.plus(highlightChapter).sortedBy { it.start }
+        )
+    }
+
+    /**
+     * Get all available player resolutions
+     */
+    private fun getAvailableResolutions(): List<VideoResolution> {
+        val resolutions = playerController.currentTracks.groups.asSequence()
+            .flatMap { group ->
+                (0 until group.length).map {
+                    group.getTrackFormat(it).height
+                }
+            }
+            .filter { it > 0 }
+            .map { VideoResolution("${it}p", it) }
+            .toSortedSet(compareByDescending { it.resolution })
+
+        resolutions.add(VideoResolution(getString(R.string.auto_quality), Int.MAX_VALUE))
+        return resolutions.toList()
+    }
+
+    private fun setPlayerResolution(resolution: Int, isSelectedByUser: Boolean = false) {
+        if (!::playerController.isInitialized) return
+
+        val transformedResolution = if (!isSelectedByUser && isShort) {
+            ceil(resolution * 16.0 / 9.0).toInt()
+        } else {
+            resolution
+        }
+
+        playerController.sendCustomCommand(
+            AbstractPlayerService.runPlayerActionCommand, bundleOf(
+                PlayerCommand.SET_RESOLUTION.name to transformedResolution
+            )
+        )
+
+        binding.player.selectedResolution = resolution
+    }
+
+    private fun updateResolution(isFullscreen: Boolean) {
+        if (!isFullscreen && noFullscreenResolution != null) {
+            setPlayerResolution(noFullscreenResolution!!)
+        } else if (fullscreenResolution != null) {
+            setPlayerResolution(fullscreenResolution!!)
+        } else {
+            setPlayerResolution(Int.MAX_VALUE)
         }
     }
 
@@ -1317,54 +1276,33 @@ class PlayerFragment : BaseFragment(), OnlinePlayerOptions {
      */
     @SuppressLint("SourceLockedOrientationActivity")
     private fun changeOrientationMode() {
-        val mainActivity = activity as MainActivity
-        if (PlayerHelper.autoRotationEnabled) {
+        if (PlayerHelper.autoFullscreenEnabled) {
             // enable auto rotation
             mainActivity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
-            onConfigurationChanged(resources.configuration)
         } else {
             // go to portrait mode
-            mainActivity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
+            mainActivity.requestedOrientation =
+                (requireActivity() as BaseActivity).screenOrientationPref
         }
     }
 
     override fun onCaptionsClicked() {
-        if (!this@PlayerFragment::streams.isInitialized ||
-            streams.subtitles == null ||
-            streams.subtitles!!.isEmpty()
-        ) {
+        if (!this@PlayerFragment::streams.isInitialized || streams.subtitles.isEmpty()) {
             Toast.makeText(context, R.string.no_subtitles_available, Toast.LENGTH_SHORT).show()
             return
         }
 
-        val subtitlesNamesList = mutableListOf(context?.getString(R.string.none)!!)
-        val subtitleCodesList = mutableListOf("")
-        streams.subtitles!!.forEach {
-            subtitlesNamesList += it.name!!
-            subtitleCodesList += it.code!!
-        }
+        val subtitles = listOf(Subtitle(name = getString(R.string.none))).plus(streams.subtitles)
 
         BaseBottomSheet()
-            .setSimpleItems(subtitlesNamesList) { index ->
-                val newParams = if (index != 0) {
-                    // caption selected
-
-                    // get the caption language code
-                    val captionLanguageCode = subtitleCodesList[index]
-
-                    // select the new caption preference
-                    trackSelector.buildUponParameters()
-                        .setPreferredTextLanguage(captionLanguageCode)
-                        .setPreferredTextRoleFlags(C.ROLE_FLAG_CAPTION)
-                } else {
-                    // none selected
-                    // disable captions
-                    trackSelector.buildUponParameters()
-                        .setPreferredTextLanguage(null)
-                }
-
-                // set the new caption language
-                trackSelector.setParameters(newParams)
+            .setSimpleItems(
+                subtitles.map { it.getDisplayName(requireContext()) },
+                preselectedItem = subtitles.firstOrNull { it == viewModel.currentSubtitle }
+                    ?.getDisplayName(requireContext()) ?: getString(R.string.none)
+            ) { index ->
+                val subtitle = subtitles.getOrNull(index) ?: return@setSimpleItems
+                updateCurrentSubtitle(subtitle)
+                viewModel.currentSubtitle = subtitle
             }
             .show(childFragmentManager)
     }
@@ -1376,30 +1314,85 @@ class PlayerFragment : BaseFragment(), OnlinePlayerOptions {
         // Dialog for quality selection
         BaseBottomSheet()
             .setSimpleItems(
-                resolutions.map { it.name }
+                resolutions.map(VideoResolution::name),
+                preselectedItem = resolutions.firstOrNull {
+                    it.resolution == binding.player.selectedResolution
+                }?.name ?: getString(R.string.auto_quality)
             ) { which ->
-                setPlayerResolution(resolutions[which].resolution)
+                val newResolution = resolutions[which].resolution
+                setPlayerResolution(newResolution, true)
+
+                // save the selected resolution to update on fullscreen change
+                if (noFullscreenResolution != null && commonPlayerViewModel.isFullscreen.value != true) {
+                    noFullscreenResolution = newResolution
+                } else {
+                    fullscreenResolution = newResolution
+                }
             }
             .show(childFragmentManager)
     }
 
-    private fun getAudioStreamGroups(audioStreams: List<PipedStream>?): Map<String?, List<PipedStream>> {
-        return audioStreams.orEmpty()
-            .groupBy { it.audioTrackName }
+    override fun onAudioStreamClicked() {
+        val context = requireContext()
+        val audioLanguagesAndRoleFlags = PlayerHelper.getAudioLanguagesAndRoleFlagsFromTrackGroups(
+            playerController.currentTracks.groups,
+            false
+        )
+        val audioLanguages = audioLanguagesAndRoleFlags.map {
+            PlayerHelper.getAudioTrackNameFromFormat(context, it)
+        }
+        val baseBottomSheet = BaseBottomSheet()
+
+        if (audioLanguagesAndRoleFlags.isEmpty() || (audioLanguagesAndRoleFlags.size == 1 &&
+                    audioLanguagesAndRoleFlags[0].first == null &&
+                    !PlayerHelper.haveAudioTrackRoleFlagSet(
+                        audioLanguagesAndRoleFlags[0].second
+                    ))
+        ) {
+            // Regardless of audio format or quality, if there is only one audio stream which has
+            // no language and no role flags, it should mean that there is only a single audio
+            // track which has no language or track type set in the video played
+            // Consider it as the default audio track (or unknown)
+            baseBottomSheet.setSimpleItems(
+                listOf(getString(R.string.default_or_unknown_audio_track)),
+                preselectedItem = getString(R.string.default_or_unknown_audio_track),
+                listener = null
+            )
+        } else {
+            baseBottomSheet.setSimpleItems(
+                audioLanguages,
+                preselectedItem = selectedAudioLanguageAndRoleFlags?.let {
+                    PlayerHelper.getAudioTrackNameFromFormat(context, it)
+                },
+            ) { index ->
+                val selectedAudioFormat = audioLanguagesAndRoleFlags[index]
+                playerController.sendCustomCommand(
+                    AbstractPlayerService.runPlayerActionCommand, bundleOf(
+                        PlayerCommand.SET_AUDIO_ROLE_FLAGS.name to selectedAudioFormat.second
+                    )
+                )
+                playerController.sendCustomCommand(
+                    AbstractPlayerService.runPlayerActionCommand, bundleOf(
+                        PlayerCommand.SET_AUDIO_LANGUAGE.name to selectedAudioFormat.first
+                    )
+                )
+                selectedAudioLanguageAndRoleFlags = selectedAudioFormat
+            }
+        }
+
+        baseBottomSheet.show(childFragmentManager)
     }
 
-    override fun onAudioStreamClicked() {
-        val audioGroups = getAudioStreamGroups(streams.audioStreams)
-        val audioLanguages = audioGroups.map { it.key ?: getString(R.string.default_audio_track) }
+    override fun exitFullscreen() {
+        unsetFullscreen()
+    }
 
-        BaseBottomSheet()
-            .setSimpleItems(audioLanguages) { index ->
-                val audioStreams = audioGroups.values.elementAt(index)
-                val lang = audioStreams.firstOrNull()?.audioTrackId?.substring(0, 2)
-                val newParams = trackSelector.buildUponParameters()
-                    .setPreferredAudioLanguage(lang)
-                trackSelector.setParameters(newParams)
-            }
+    override fun onStatsClicked() {
+        if (!this::streams.isInitialized) return
+
+        val videoStats = PlayerHelper.getVideoStats(playerController.currentTracks, videoId)
+        StatsSheet()
+            .apply { arguments = bundleOf(IntentData.videoStats to videoStats) }
             .show(childFragmentManager)
     }
 
@@ -1407,91 +1400,145 @@ class PlayerFragment : BaseFragment(), OnlinePlayerOptions {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode)
         if (isInPictureInPictureMode) {
             // hide and disable exoPlayer controls
-            exoPlayerView.hideController()
-            exoPlayerView.useController = false
+            disableController()
 
-            // set portrait mode
-            unsetFullscreen()
+            updateCurrentSubtitle(null)
 
-            if (viewModel.isMiniPlayerVisible.value == true) {
-                binding.playerMotionLayout.transitionToStart()
-                viewModel.isMiniPlayerVisible.value = false
-            }
-
-            with(binding.playerMotionLayout) {
-                getConstraintSet(R.id.start).constrainHeight(R.id.player, -1)
-                enableTransition(R.id.yt_transition, false)
-            }
-            binding.linLayout.visibility = View.GONE
-
-            viewModel.isFullscreen.value = false
-        } else if (lifecycle.currentState == Lifecycle.State.CREATED) {
-            // close button got clicked in PiP mode
-            // destroying the fragment, player and notification
-            onDestroy()
-            // finish the activity
-            activity?.finishAndRemoveTask()
+            openOrCloseFullscreenDialog(true)
+            pipActivity = activity
         } else {
-            // enable exoPlayer controls again
-            exoPlayerView.useController = true
+            binding.player.useController = true
 
-            with(binding.playerMotionLayout) {
-                getConstraintSet(R.id.start).constrainHeight(R.id.player, 0)
-                enableTransition(R.id.yt_transition, true)
+            // close button got clicked in PiP mode
+            // pause the video and keep the app alive
+            if (lifecycle.currentState == Lifecycle.State.CREATED) {
+                playerController.pause()
+                closedVideo = true
             }
-            binding.linLayout.visibility = View.VISIBLE
+
+            updateCurrentSubtitle(viewModel.currentSubtitle)
+
+            // unset fullscreen if it's not been enabled before the start of PiP
+            if (commonPlayerViewModel.isFullscreen.value != true) {
+                openOrCloseFullscreenDialog(false)
+            }
         }
+    }
+
+    private fun updateCurrentSubtitle(subtitle: Subtitle?) {
+        if (!::playerController.isInitialized) return
+
+        playerController.sendCustomCommand(
+            AbstractPlayerService.runPlayerActionCommand, bundleOf(
+                PlayerCommand.SET_SUBTITLE.name to subtitle
+            )
+        )
     }
 
     fun onUserLeaveHint() {
-        if (usePiP() && shouldStartPiP()) {
-            activity?.enterPictureInPictureMode(getPipParams())
+        if (shouldStartPiP()) {
+            PictureInPictureCompat.enterPictureInPictureMode(requireActivity(), pipParams)
+        } else if (PlayerHelper.pauseOnQuit) {
+            playerController.pause()
         }
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
-    fun getPipParams(): PictureInPictureParams = PictureInPictureParams.Builder()
-        .setActions(emptyList())
-        .apply {
-            if (SDK_INT >= Build.VERSION_CODES.S) {
-                setAutoEnterEnabled(true)
-            }
+    private val pipParams: PictureInPictureParamsCompat
+        get() = run {
+            val isPlaying = ::playerController.isInitialized && playerController.isPlaying
+
+            PictureInPictureParamsCompat.Builder()
+                .setActions(
+                    PlayerHelper.getPiPModeActions(
+                        requireActivity(),
+                        isPlaying
+                    )
+                )
+                .setAutoEnterEnabled(PlayerHelper.pipEnabled && isPlaying)
+                .apply {
+                    if (isPlaying) {
+                        setAspectRatio(playerController.videoSize)
+                    }
+                }
+                .build()
         }
-        .build()
+
+    private fun createSeekbarPreviewListener(): SeekbarPreviewListener {
+        return SeekbarPreviewListener(
+            OnlineTimeFrameReceiver(requireContext(), streams.previewFrames),
+            playerBinding,
+            streams.duration * 1000
+        )
+    }
+
+    /**
+     * Detect whether PiP is supported and enabled
+     */
+    private fun shouldUsePip(): Boolean {
+        return PictureInPictureCompat.isPictureInPictureAvailable(requireContext()) && PlayerHelper.pipEnabled
+    }
 
     private fun shouldStartPiP(): Boolean {
-        if (!PlayerHelper.pipEnabled ||
-            exoPlayer.playbackState == PlaybackState.STATE_PAUSED ||
-            videoShownInExternalPlayer
-        ) {
-            return false
-        }
-
-        val backgroundModeRunning = isServiceRunning(requireContext(), BackgroundMode::class.java)
-
-        return exoPlayer.isPlaying && !backgroundModeRunning
+        return shouldUsePip() && ::playerController.isInitialized && playerController.isPlaying &&
+                !BackgroundHelper.isBackgroundServiceRunning(requireContext())
     }
 
-    private fun isServiceRunning(context: Context, serviceClass: Class<*>): Boolean {
-        val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-        @Suppress("DEPRECATION")
-        for (service in manager.getRunningServices(Int.MAX_VALUE)) {
-            if (serviceClass.name == service.service.className) {
-                return true
-            }
+    /**
+     * Check if the activity needs to be recreated due to an orientation change
+     * If true, the activity will be automatically restarted
+     */
+    private fun restartActivityIfNeeded() {
+        if (mainActivity.screenOrientationPref in lockedOrientations || viewModel.isOrientationChangeInProgress) return
+
+        val orientation = resources.configuration.orientation
+        if (commonPlayerViewModel.isFullscreen.value != true && orientation != playerLayoutOrientation) {
+            // remember the current position before recreating the activity
+            playerLayoutOrientation = orientation
+
+            viewModel.isOrientationChangeInProgress = true
+
+            // detatch player view from player to stop surface rendering
+            binding.player.player = null
+
+            if (::playerController.isInitialized) playerController.release()
+
+            activity?.recreate()
         }
-        return false
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
 
-        if (!PlayerHelper.autoRotationEnabled) return
-        when (newConfig.orientation) {
-            // go to fullscreen mode
-            Configuration.ORIENTATION_LANDSCAPE -> setFullscreen()
-            // exit fullscreen if not landscape
-            else -> unsetFullscreen()
+        if (_binding == null ||
+            // If in PiP mode, orientation is given as landscape.
+            PictureInPictureCompat.isInPictureInPictureMode(requireActivity())
+        ) {
+            return
         }
+
+        if (PlayerHelper.autoFullscreenEnabled) {
+            when (newConfig.orientation) {
+                // go to fullscreen mode
+                Configuration.ORIENTATION_LANDSCAPE -> setFullscreen()
+                // exit fullscreen if not landscape
+                else -> unsetFullscreen()
+            }
+        }
+
+        restartActivityIfNeeded()
+    }
+
+    private fun disableController() {
+        binding.player.useController = false
+        binding.player.hideController()
+    }
+
+    fun onKeyUp(keyCode: Int): Boolean {
+        return _binding?.player?.onKeyBoardAction(keyCode) ?: false
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        _binding = null
     }
 }

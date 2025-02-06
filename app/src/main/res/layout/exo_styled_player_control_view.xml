@@ -10,15 +10,14 @@
         android:background="@color/exo_black_opacity_60" />
 
     <LinearLayout
-        android:id="@+id/exo_top_bar"
+        android:id="@+id/top_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="top"
         android:animateLayoutChanges="true"
         android:orientation="vertical"
-        android:paddingStart="5dp"
-        android:paddingTop="5dp"
-        android:paddingEnd="10dp">
+        android:paddingHorizontal="5dp"
+        android:paddingTop="5dp">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -36,13 +35,14 @@
                     style="@style/PlayerControlTop"
                     android:layout_marginEnd="-10dp"
                     android:src="@drawable/ic_close"
+                    android:tooltipText="@string/tooltip_minimize"
                     app:tint="@android:color/white" />
 
                 <ImageView
                     android:id="@+id/lock_player"
                     style="@style/PlayerControlTop"
-                    android:scaleX=".8"
-                    android:scaleY=".8"
+                    android:scaleX="0.8"
+                    android:scaleY="0.8"
                     android:src="@drawable/ic_unlocked" />
 
             </LinearLayout>
@@ -67,18 +67,59 @@
                 android:layout_gravity="center"
                 android:layoutDirection="ltr">
 
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/autoPlay"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="2dp"
+                    android:scaleX="0.8"
+                    android:scaleY="0.8"
+                    android:thumb="@drawable/player_switch_thumb"
+                    android:tooltipText="@string/player_autoplay"
+                    app:thumbTint="@android:color/white"
+                    app:track="@drawable/player_switch_track"
+                    app:trackTint="#88ffffff" />
+
+                <ImageButton
+                    android:id="@+id/dearrow_submit"
+                    style="@style/PlayerControlTop"
+                    android:layout_marginEnd="2dp"
+                    android:src="@drawable/ic_dearrow"
+                    android:tooltipText="@string/contribute_to_dearrow"
+                    android:visibility="gone"
+                    app:tint="@android:color/white" />
+
+                <ImageButton
+                    android:id="@+id/sb_submit"
+                    style="@style/PlayerControlTop"
+                    android:layout_marginEnd="2dp"
+                    android:src="@drawable/ic_upload_segment"
+                    android:tooltipText="@string/sb_create_segment"
+                    android:visibility="gone"
+                    app:tint="@android:color/white" />
+
+                <ImageButton
+                    android:id="@+id/sb_toggle"
+                    style="@style/PlayerControlTop"
+                    android:layout_marginEnd="2dp"
+                    android:src="@drawable/ic_sb_enabled"
+                    android:tooltipText="@string/tooltip_sponsorblock"
+                    android:visibility="gone"
+                    app:tint="@android:color/white" />
+
                 <ImageButton
                     android:id="@+id/queue_toggle"
                     style="@style/PlayerControlTop"
                     android:layout_marginEnd="2dp"
                     android:src="@drawable/ic_queue"
-                    android:visibility="gone"
+                    android:tooltipText="@string/queue"
                     app:tint="@android:color/white" />
 
                 <ImageButton
                     android:id="@+id/toggle_options"
                     style="@style/PlayerControlTop"
-                    android:src="@drawable/ic_arrow_down"
+                    android:src="@drawable/ic_player_settings"
+                    android:tooltipText="@string/tooltip_options"
                     app:tint="@android:color/white" />
 
             </LinearLayout>
@@ -88,7 +129,94 @@
     </LinearLayout>
 
     <LinearLayout
-        android:id="@id/exo_bottom_bar"
+        android:id="@id/exo_center_controls"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:background="@android:color/transparent"
+        android:gravity="center"
+        android:padding="20dp">
+
+        <ImageView
+            android:id="@+id/skip_prev"
+            style="@style/PlayerControlCenter"
+            android:background="?android:selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_prev"
+            android:visibility="invisible"
+            app:tint="@android:color/white" />
+
+        <FrameLayout
+            android:id="@+id/rewindBTN"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:layout_marginHorizontal="10dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:scaleX="0.8"
+            android:scaleY="0.8"
+            android:visibility="gone">
+
+            <ImageView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:src="@drawable/ic_rewind"
+                app:tint="@android:color/white" />
+
+            <TextView
+                android:id="@+id/rewindTV"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:textColor="@android:color/white" />
+
+        </FrameLayout>
+
+        <ImageButton
+            android:id="@+id/playPauseBTN"
+            style="@style/ExoStyledControls.Button.Center.PlayPause"
+            android:layout_marginHorizontal="10dp"
+            android:background="?android:selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_play"
+            app:tint="@android:color/white" />
+
+        <FrameLayout
+            android:id="@+id/forwardBTN"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:layout_marginHorizontal="10dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:scaleX="0.8"
+            android:scaleY="0.8"
+            android:visibility="gone">
+
+            <ImageView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:src="@drawable/ic_forward"
+                app:tint="@android:color/white" />
+
+            <TextView
+                android:id="@+id/forwardTV"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:textColor="@android:color/white" />
+
+        </FrameLayout>
+
+        <ImageView
+            android:id="@+id/skip_next"
+            style="@style/PlayerControlCenter"
+            android:background="?android:selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_next"
+            android:visibility="invisible"
+            app:tint="@android:color/white" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/bottom_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
@@ -96,8 +224,44 @@
         android:orientation="vertical">
 
         <LinearLayout
+            android:id="@+id/seekbar_preview"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:translationY="30dp"
+            android:translationZ="1dp"
+            android:visibility="gone">
+
+            <com.google.android.material.imageview.ShapeableImageView
+                android:id="@+id/seekbar_preview_image"
+                android:layout_width="140dp"
+                android:layout_height="wrap_content"
+                android:adjustViewBounds="true"
+                android:scaleType="fitCenter"
+                app:shapeAppearanceOverlay="@style/ShapeAppearance.Material3.Corner.Small" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:layout_marginTop="5dp"
+                android:padding="5dp"
+                app:strokeWidth="0dp">
+
+                <TextView
+                    android:id="@+id/seekbar_preview_position"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginHorizontal="5dp" />
+
+            </com.google.android.material.card.MaterialCardView>
+
+        </LinearLayout>
+
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginBottom="-6dp"
             android:baselineAligned="false"
             android:paddingStart="10dp"
             android:paddingEnd="20dp">
@@ -110,7 +274,7 @@
                 android:layout_marginStart="10dp">
 
                 <TextView
-                    android:id="@id/exo_position"
+                    android:id="@+id/position"
                     style="@style/TimeString"
                     android:text="00:00"
                     tools:ignore="HardcodedText" />
@@ -121,69 +285,45 @@
                     tools:ignore="HardcodedText" />
 
                 <TextView
-                    android:id="@id/exo_duration"
+                    android:id="@+id/duration"
                     style="@style/TimeString"
                     android:text="00:00"
                     tools:ignore="HardcodedText" />
 
-            </LinearLayout>
-
-            <LinearLayout
-                android:id="@+id/liveLL"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:layout_marginStart="10dp"
-                android:visibility="gone">
-
                 <TextView
-                    android:id="@+id/liveDiff"
+                    android:id="@+id/timeLeft"
                     style="@style/TimeString"
-                    tools:text="05:10" />
-
-                <TextView
-                    android:id="@+id/liveSeparator"
-                    style="@style/TimeString"
-                    android:layout_marginHorizontal="5dp"
-                    android:paddingHorizontal="0dp"
-                    android:text="  •  "
+                    android:text="00:00"
                     android:visibility="gone"
                     tools:ignore="HardcodedText" />
 
-                <TextView
-                    android:id="@+id/liveIndicator"
-                    style="@style/TimeString"
-                    android:text="@string/live" />
-
             </LinearLayout>
 
-            <LinearLayout
-                android:id="@+id/chapterLL"
+            <FrameLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_gravity="center"
                 android:layout_marginStart="12dp"
-                android:layout_marginEnd="12dp"
-                android:layout_weight="1"
-                android:visibility="invisible">
+                android:layout_marginEnd="6dp"
+                android:layout_weight="1">
 
                 <TextView
                     android:id="@+id/chapter_name"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_gravity="center"
                     android:ellipsize="end"
+                    android:gravity="center_vertical"
                     android:maxLines="1"
-                    android:textColor="@android:color/white" />
+                    android:textColor="@android:color/white"
+                    android:visibility="gone"
+                    app:drawableEndCompat="@drawable/ic_arrow_right"
+                    app:drawableTint="@android:color/white"
+                    tools:drawableTint="?colorControlNormal"
+                    tools:text="some overflowing text that takes too much space"
+                    tools:textColor="@android:color/black"
+                    tools:visibility="visible" />
 
-                <ImageView
-                    android:layout_width="15dp"
-                    android:layout_height="15dp"
-                    android:layout_gravity="center"
-                    android:layout_marginStart="3dp"
-                    android:src="@drawable/ic_arrow_right" />
-
-            </LinearLayout>
+            </FrameLayout>
 
             <LinearLayout
                 android:id="@id/exo_basic_controls"
@@ -194,6 +334,7 @@
                     android:id="@+id/fullscreen"
                     style="@style/PlayerControlBottom"
                     android:src="@drawable/ic_fullscreen"
+                    android:tooltipText="@string/tooltip_fullscreen"
                     app:tint="@android:color/white" />
 
             </LinearLayout>
@@ -203,57 +344,23 @@
         <LinearLayout
             android:id="@+id/progress_bar"
             android:layout_width="match_parent"
-            android:layout_height="15dp"
+            android:layout_height="wrap_content"
             android:layout_gravity="bottom"
-            android:layout_marginLeft="10dp"
-            android:layout_marginRight="10dp"
-            android:layout_marginBottom="10dp">
+            android:layout_marginHorizontal="10dp"
+            android:translationZ="10dp">
 
             <com.github.libretube.ui.views.MarkableTimeBar
-                android:id="@id/exo_progress"
+                android:id="@+id/exo_progress"
                 android:layout_width="match_parent"
-                android:layout_height="15dp"
+                android:layout_height="match_parent"
+                android:paddingTop="6dp"
                 app:bar_height="2dp"
                 app:played_color="?attr/colorSecondary"
                 app:scrubber_color="?attr/colorSecondary"
-                app:scrubber_dragged_size="15dp"
+                app:scrubber_dragged_size="16dp"
                 app:scrubber_enabled_size="12dp" />
 
         </LinearLayout>
-
-    </LinearLayout>
-
-    <LinearLayout
-        android:id="@id/exo_center_controls"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:background="@android:color/transparent"
-        android:clipToPadding="false"
-        android:gravity="center"
-        android:padding="20dp">
-
-        <ImageView
-            android:id="@+id/skip_prev"
-            style="@style/PlayerControlCenter"
-            android:background="?android:selectableItemBackgroundBorderless"
-            android:src="@drawable/ic_prev"
-            android:visibility="invisible"
-            app:tint="@android:color/white" />
-
-        <ImageButton
-            android:id="@id/exo_play_pause"
-            style="@style/ExoStyledControls.Button.Center.PlayPause"
-            android:background="?android:selectableItemBackgroundBorderless"
-            app:tint="@android:color/white" />
-
-        <ImageView
-            android:id="@+id/skip_next"
-            style="@style/PlayerControlCenter"
-            android:background="?android:selectableItemBackgroundBorderless"
-            android:src="@drawable/ic_next"
-            android:visibility="invisible"
-            app:tint="@android:color/white" />
 
     </LinearLayout>
 

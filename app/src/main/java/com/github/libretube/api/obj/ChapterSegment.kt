@@ -1,10 +1,27 @@
 package com.github.libretube.api.obj
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import android.graphics.drawable.Drawable
+import android.os.Parcelable
+import kotlinx.parcelize.IgnoredOnParcel
+import kotlinx.parcelize.Parcelize
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 
-@JsonIgnoreProperties(ignoreUnknown = true)
+@Serializable
+@Parcelize
 data class ChapterSegment(
-    var title: String? = null,
-    var image: String? = null,
-    var start: Long? = null
-)
+    val title: String,
+    val image: String = "",
+    val start: Long,
+    // Used only for video highlights
+    @Transient
+    @IgnoredOnParcel
+    var highlightDrawable: Drawable? = null
+): Parcelable {
+    companion object {
+        /**
+         * Length to show for a highlight in seconds
+         */
+        const val HIGHLIGHT_LENGTH = 10L
+    }
+}

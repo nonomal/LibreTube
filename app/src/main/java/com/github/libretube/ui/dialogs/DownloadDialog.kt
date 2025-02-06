@@ -1,168 +1,274 @@
 package com.github.libretube.ui.dialogs
 
 import android.app.Dialog
-import android.content.Intent
+import android.content.DialogInterface
 import android.os.Bundle
+import android.text.InputFilter
+import android.text.format.Formatter
 import android.util.Log
-import android.view.View
-import android.widget.ArrayAdapter
 import android.widget.Toast
-import androidx.core.view.size
+import androidx.core.os.bundleOf
+import androidx.core.view.isGone
 import androidx.fragment.app.DialogFragment
+import androidx.fragment.app.setFragmentResult
 import androidx.lifecycle.lifecycleScope
 import com.github.libretube.R
-import com.github.libretube.api.RetrofitInstance
+import com.github.libretube.api.StreamsExtractor
+import com.github.libretube.api.obj.PipedStream
 import com.github.libretube.api.obj.Streams
+import com.github.libretube.api.obj.Subtitle
+import com.github.libretube.constants.IntentData
 import com.github.libretube.databinding.DialogDownloadBinding
 import com.github.libretube.extensions.TAG
-import com.github.libretube.extensions.sanitize
-import com.github.libretube.services.DownloadService
-import com.github.libretube.util.ImageHelper
-import com.github.libretube.util.MetadataHelper
-import com.github.libretube.util.ThemeHelper
+import com.github.libretube.extensions.getWhileDigit
+import com.github.libretube.extensions.toastFromMainDispatcher
+import com.github.libretube.helpers.DownloadHelper
+import com.github.libretube.helpers.PreferenceHelper
+import com.github.libretube.parcelable.DownloadData
+import com.github.libretube.util.TextUtils
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import retrofit2.HttpException
-import java.io.IOException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
-class DownloadDialog(
-    private val videoId: String
-) : DialogFragment() {
-    private lateinit var binding: DialogDownloadBinding
+class DownloadDialog : DialogFragment() {
+    private lateinit var videoId: String
+    private var onDownloadConfirm = {}
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        videoId = arguments?.getString(IntentData.videoId)!!
+    }
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
-        binding = DialogDownloadBinding.inflate(layoutInflater)
+        val binding = DialogDownloadBinding.inflate(layoutInflater)
 
-        fetchAvailableSources()
+        fetchAvailableSources(binding)
 
-        binding.title.text = ThemeHelper.getStyledAppName(requireContext())
+        binding.fileName.filters += InputFilter { source, start, end, _, _, _ ->
+            if (source.isNullOrBlank()) {
+                return@InputFilter null
+            }
 
-        binding.audioRadio.setOnClickListener {
-            binding.videoSpinner.visibility = View.GONE
-        }
-
-        binding.videoRadio.setOnClickListener {
-            binding.videoSpinner.visibility = View.VISIBLE
+            // Extract actual source
+            val actualSource = source.subSequence(start, end)
+            // Filter out unsupported characters
+            val filtered = actualSource.filterNot {
+                TextUtils.RESERVED_CHARS.contains(it, true)
+            }
+            // Check if something was filtered out
+            return@InputFilter if (actualSource.length != filtered.length) {
+                filtered
+            } else {
+                null
+            }
         }
 
         return MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.download)
             .setView(binding.root)
+            .setPositiveButton(R.string.download, null)
             .show()
+            .apply {
+                getButton(DialogInterface.BUTTON_POSITIVE).setOnClickListener {
+                    onDownloadConfirm.invoke()
+                }
+            }
     }
 
-    private fun fetchAvailableSources() {
-        lifecycleScope.launchWhenCreated {
+    private fun fetchAvailableSources(binding: DialogDownloadBinding) {
+        lifecycleScope.launch {
             val response = try {
-                RetrofitInstance.api.getStreams(videoId)
-            } catch (e: IOException) {
-                println(e)
-                Log.e(TAG(), "IOException, you might not have internet connection")
-                Toast.makeText(context, R.string.unknown_error, Toast.LENGTH_SHORT).show()
-                return@launchWhenCreated
-            } catch (e: HttpException) {
-                Log.e(TAG(), "HttpException, unexpected response")
-                Toast.makeText(context, R.string.server_error, Toast.LENGTH_SHORT).show()
-                return@launchWhenCreated
+                withContext(Dispatchers.IO) {
+                    StreamsExtractor.extractStreams(videoId)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG(), e.stackTraceToString())
+                val context = context ?: return@launch
+                val errorMessage = StreamsExtractor.getExtractorErrorMessageString(context, e)
+                context.toastFromMainDispatcher(errorMessage)
+                return@launch
             }
-            initDownloadOptions(response)
+            initDownloadOptions(binding, response)
         }
     }
 
-    private fun initDownloadOptions(streams: Streams) {
-        binding.fileName.setText(streams.title.toString())
+    private fun initDownloadOptions(binding: DialogDownloadBinding, streams: Streams) {
+        binding.fileName.setText(streams.title)
 
-        val vidName = arrayListOf<String>()
-        val videoUrl = arrayListOf<String>()
-
-        // add empty selection
-        vidName.add(getString(R.string.no_video))
-        videoUrl.add("")
-
-        // add all available video streams
-        for (vid in streams.videoStreams!!) {
-            if (vid.url != null) {
-                val name = vid.quality + " " + vid.format
-                vidName.add(name)
-                videoUrl.add(vid.url!!)
-            }
+        val videoStreams = streams.videoStreams.filter {
+            !it.url.isNullOrEmpty()
+        }.filter { !it.format.orEmpty().contains("HLS") }.sortedByDescending {
+            it.quality.getWhileDigit()
         }
 
-        val audioName = arrayListOf<String>()
-        val audioUrl = arrayListOf<String>()
-
-        // add empty selection
-        audioName.add(getString(R.string.no_audio))
-        audioUrl.add("")
-
-        // add all available audio streams
-        for (audio in streams.audioStreams!!) {
-            if (audio.url != null) {
-                val name = audio.quality + " " + audio.format
-                audioName.add(name)
-                audioUrl.add(audio.url!!)
-            }
+        val audioStreams = streams.audioStreams.filter {
+            !it.url.isNullOrEmpty()
+        }.sortedByDescending {
+            it.quality.getWhileDigit()
         }
 
-        // initialize the video sources
-        val videoArrayAdapter = ArrayAdapter(
-            requireContext(),
-            android.R.layout.simple_spinner_item,
-            vidName
-        )
-        videoArrayAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        binding.videoSpinner.adapter = videoArrayAdapter
-        if (binding.videoSpinner.size >= 1) binding.videoSpinner.setSelection(1)
-        if (binding.audioSpinner.size >= 1) binding.audioSpinner.setSelection(1)
+        val subtitles = streams.subtitles
+            .filter { !it.url.isNullOrEmpty() && !it.name.isNullOrEmpty() }
+            .sortedBy { it.name }
 
-        // initialize the audio sources
-        val audioArrayAdapter = ArrayAdapter(
-            requireContext(),
-            android.R.layout.simple_spinner_item,
-            audioName
-        )
-        audioArrayAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        binding.audioSpinner.adapter = audioArrayAdapter
-        if (binding.audioSpinner.size >= 1) binding.audioSpinner.setSelection(1)
+        if (subtitles.isEmpty()) binding.subtitleSpinner.isGone = true
 
-        binding.download.setOnClickListener {
-            if (binding.fileName.text.toString().length < 1) {
+        binding.videoSpinner.items = videoStreams.map {
+            val fileSize = Formatter.formatShortFileSize(context, it.contentLength)
+            "${it.quality} ${it.codec} ($fileSize)"
+        }.toMutableList().also {
+            it.add(0, getString(R.string.no_video))
+        }
+
+        binding.audioSpinner.items = audioStreams.map {
+            val fileSize = it.contentLength
+                .takeIf { l -> l > 0 }
+                ?.let { cl -> Formatter.formatShortFileSize(context, cl) }
+            val infoStr = listOfNotNull(it.audioTrackLocale, fileSize)
+                .joinToString(", ")
+            "${it.quality} ${it.format} ($infoStr)"
+        }.toMutableList().also {
+            it.add(0, getString(R.string.no_audio))
+        }
+
+        binding.subtitleSpinner.items = subtitles.map { it.name.orEmpty() }.toMutableList().also {
+            it.add(0, getString(R.string.no_subtitle))
+        }
+
+        restorePreviousSelections(binding, videoStreams, audioStreams, subtitles)
+
+        onDownloadConfirm = onDownloadConfirm@{
+            val fileName = binding.fileName.text.toString()
+            if (fileName.isBlank()) {
                 Toast.makeText(context, R.string.invalid_filename, Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
+                return@onDownloadConfirm
             }
 
-            val vidUrl = videoUrl[binding.videoSpinner.selectedItemPosition]
-            val audUrl = audioUrl[binding.audioSpinner.selectedItemPosition]
-
-            if (audUrl == "" && vidUrl == "") return@setOnClickListener
-
-            val fileName = binding.fileName.text.toString().sanitize()
-
-            val metadataHelper = MetadataHelper(requireContext())
-            metadataHelper.createMetadata(fileName, streams)
-            streams.thumbnailUrl?.let { thumbnailUrl ->
-                ImageHelper.downloadImage(
-                    requireContext(),
-                    thumbnailUrl,
-                    fileName
-                )
+            if (fileName.toByteArray().size > MAX_FILE_NAME_BYTES - 32) { // reserve 32 bytes for quality and extension
+                Toast.makeText(context, R.string.filename_too_long, Toast.LENGTH_SHORT).show()
+                return@onDownloadConfirm
             }
 
-            val intent = Intent(context, DownloadService::class.java)
+            val videoPosition = binding.videoSpinner.selectedItemPosition - 1
+            val audioPosition = binding.audioSpinner.selectedItemPosition - 1
+            val subtitlePosition = binding.subtitleSpinner.selectedItemPosition - 1
 
-            intent.putExtra(
-                "videoName",
-                fileName
-            )
-            intent.putExtra(
-                "videoUrl",
-                vidUrl
-            )
-            intent.putExtra(
-                "audioUrl",
-                audUrl
-            )
+            if (listOf(videoPosition, audioPosition, subtitlePosition).all { it == -1 }) {
+                Toast.makeText(context, R.string.nothing_selected, Toast.LENGTH_SHORT).show()
+                return@onDownloadConfirm
+            }
 
-            context?.startService(intent)
+            val videoStream = videoStreams.getOrNull(videoPosition)
+            val audioStream = audioStreams.getOrNull(audioPosition)
+            val subtitle = subtitles.getOrNull(subtitlePosition)
+
+            saveSelections(videoStream, audioStream, subtitle)
+
+            val downloadData = DownloadData(
+                videoId = videoId,
+                fileName = binding.fileName.text?.toString().orEmpty(),
+                videoFormat = videoStream?.format,
+                videoQuality = videoStream?.quality,
+                audioFormat = audioStream?.format,
+                audioQuality = audioStream?.quality,
+                audioLanguage = audioStream?.audioTrackLocale,
+                subtitleCode = subtitle?.code
+            )
+            DownloadHelper.startDownloadService(requireContext(), downloadData)
+
             dismiss()
         }
+    }
+
+    /**
+     * Save the download selection to the preferences
+     */
+    private fun saveSelections(
+        videoStream: PipedStream?,
+        audioStream: PipedStream?,
+        subtitle: Subtitle?
+    ) {
+        PreferenceHelper.putString(SUBTITLE_LANGUAGE, subtitle?.code.orEmpty())
+        PreferenceHelper.putString(VIDEO_DOWNLOAD_FORMAT, videoStream?.format.orEmpty())
+        PreferenceHelper.putString(VIDEO_DOWNLOAD_QUALITY, videoStream?.quality.orEmpty())
+        PreferenceHelper.putString(AUDIO_DOWNLOAD_FORMAT, audioStream?.format.orEmpty())
+        PreferenceHelper.putString(AUDIO_DOWNLOAD_QUALITY, audioStream?.quality.orEmpty())
+    }
+
+    private fun getSel(key: String) = PreferenceHelper.getString(key, "")
+
+    /**
+     * Restore the download selections from a previous session
+     */
+    private fun restorePreviousSelections(
+        binding: DialogDownloadBinding,
+        videoStreams: List<PipedStream>,
+        audioStreams: List<PipedStream>,
+        subtitles: List<Subtitle>
+    ) {
+        getStreamSelection(
+            videoStreams,
+            getSel(VIDEO_DOWNLOAD_QUALITY),
+            getSel(VIDEO_DOWNLOAD_FORMAT)
+        )?.let {
+            binding.videoSpinner.selectedItemPosition = it + 1
+        }
+        getStreamSelection(
+            audioStreams,
+            getSel(AUDIO_DOWNLOAD_QUALITY),
+            getSel(AUDIO_DOWNLOAD_FORMAT)
+        )?.let {
+            binding.audioSpinner.selectedItemPosition = it + 1
+        }
+
+        subtitles.indexOfFirst { it.code == getSel(SUBTITLE_LANGUAGE) }.takeIf { it != -1 }?.let {
+            binding.subtitleSpinner.selectedItemPosition = it + 1
+        }
+    }
+
+    private fun getStreamSelection(
+        streams: List<PipedStream>,
+        quality: String,
+        format: String
+    ): Int? {
+        if (quality.isBlank()) return null
+
+        streams.forEachIndexed { index, pipedStream ->
+            if (quality == pipedStream.quality && format == pipedStream.format) return index
+        }
+
+        streams.forEachIndexed { index, pipedStream ->
+            if (quality == pipedStream.quality) return index
+        }
+
+        val qualityInt = quality.getWhileDigit() ?: return null
+
+        streams.forEachIndexed { index, pipedStream ->
+            if ((pipedStream.quality.getWhileDigit() ?: Int.MAX_VALUE) < qualityInt) return index
+        }
+
+        return null
+    }
+
+    override fun onDismiss(dialog: DialogInterface) {
+        super.onDismiss(dialog)
+
+        setFragmentResult(DOWNLOAD_DIALOG_DISMISSED_KEY, bundleOf())
+    }
+
+    companion object {
+        /**
+         * Max file name length at Android systems
+         */
+        private const val MAX_FILE_NAME_BYTES = 255
+
+        private const val VIDEO_DOWNLOAD_QUALITY = "video_download_quality"
+        private const val VIDEO_DOWNLOAD_FORMAT = "video_download_format"
+        private const val AUDIO_DOWNLOAD_QUALITY = "audio_download_quality"
+        private const val AUDIO_DOWNLOAD_FORMAT = "audio_download_format"
+        private const val SUBTITLE_LANGUAGE = "subtitle_download_language"
+
+        const val DOWNLOAD_DIALOG_DISMISSED_KEY = "download_dialog_dismissed_key"
     }
 }

@@ -8,9 +8,9 @@ import androidx.recyclerview.widget.RecyclerView
 import com.github.libretube.R
 import com.github.libretube.constants.PreferenceKeys
 import com.github.libretube.databinding.AppIconItemBinding
+import com.github.libretube.helpers.PreferenceHelper
+import com.github.libretube.helpers.ThemeHelper
 import com.github.libretube.ui.viewholders.IconsSheetViewHolder
-import com.github.libretube.util.PreferenceHelper
-import com.github.libretube.util.ThemeHelper
 
 class IconsSheetAdapter : RecyclerView.Adapter<IconsSheetViewHolder>() {
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): IconsSheetViewHolder {
@@ -18,9 +18,7 @@ class IconsSheetAdapter : RecyclerView.Adapter<IconsSheetViewHolder>() {
         return IconsSheetViewHolder(binding)
     }
 
-    override fun getItemCount(): Int {
-        return availableIcons.size
-    }
+    override fun getItemCount() = availableIcons.size
 
     override fun onBindViewHolder(holder: IconsSheetViewHolder, position: Int) {
         val appIcon = availableIcons[position]
@@ -41,7 +39,7 @@ class IconsSheetAdapter : RecyclerView.Adapter<IconsSheetViewHolder>() {
             val activityAlias: String
         ) {
             object Default :
-                AppIcon(R.string.defaultIcon, R.mipmap.ic_launcher, "ui.activities.MainActivity")
+                AppIcon(R.string.defaultIcon, R.mipmap.ic_launcher, "Default")
 
             object DefaultLight :
                 AppIcon(R.string.defaultIconLight, R.mipmap.ic_launcher_light, "DefaultLight")
